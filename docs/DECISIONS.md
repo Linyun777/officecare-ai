@@ -1,3 +1,7 @@
-- 2026-10-17：阶段 01 以 GitHub `main` 的 `fb73f81` 为审计基准。本地 `master` 的 `1a8affb` 与基准业务代码一致，差异仅为文档和 README；审计在独立 worktree 执行，主目录保留文档变更。
+- 2026-10-17：阶段 01 初始审计基准为 GitHub `main` 的 `fb73f81`，最新核实和验收提交为 `cd53c7da9340412b967a10d36815996db22abc59`。本地 `master` 的 `1a8affb` 与 GitHub `main` 非祖先关系；验收在独立 worktree 的 `cd53c7d` 执行，主目录保留文档变更。
 - 2026-10-17：F10 采用“块自身显式声明 + 紧邻前一块型号组标题继承 + 错误标签精确加权”的内容级守卫，不修改 Milvus Schema、不重建向量。独立成行的型号表头只约束后续块，表头块自身保留，避免误伤共享表格行。检索算法版本写入 RAG 缓存键，部署后不会命中旧的跨型号回答缓存。
 - 2026-10-17：按用户要求，阶段 01 设计文档（`AGENTS.md`、`docs/STATUS.md`、`docs/DECISIONS.md`、`docs/stages/`）纳入 Git 并直接提交到 main；`docs/archive/`、`notes/`、评测结果仍不入 Git。
+- 2026-10-17：阶段 01 的写链路与故障测试只使用 `officecare_ai_test`、`officecare_agent_test`、Milvus 测试集合、RabbitMQ `/officecare_test`、Redis database 15 和 `D:/officecare-data/p01-test`；故障注入通过 `notes/` 下一次性代理和测试配置完成，不改生产代码，不碰开发数据。
+- 2026-10-17：F01/F02 已从静态风险升级为测试环境确认的问题，但阶段 01 只复现、记录和验证恢复，不在无设计情况下修复；阶段 02 优先处理 Java 事务边界与同一 `turnId` 的服务端幂等。P01-03 在用户提供 Docker 主机或 SSH 前保持 BLOCKED，不新建基础设施。
+- 2026-10-17：正式工单当前按 `oc_service` 角色可见，草稿按用户隔离；这是现有 RBAC 行为，不登记为越权 Bug。是否按用户/组织收紧工单可见范围，留作阶段 02 的产品决策。
+- 2026-10-17：用户决定跳过 P01-03 部署与健康检查验收。该项保持未验证，不写成通过，也不在本轮继续要求 Docker/SSH；Compose、容器启动、外部网络、容器内 DNS、Nginx 和容器健康检查留待将来需要部署验收时再补。

@@ -1,11 +1,11 @@
 # 阶段 01：工程基线审计与验收
 
-状态：开发中
+状态：开发中（验收暂不通过：P01-05 FAIL；P01-03 用户决定跳过）
 
 ## 目标与用户看到的效果
 
 - 审查现有代码与环境，验证三条核心业务链路，不增加功能、不大规模重构。
-- 给出真实可追溯的三端构建/测试结论，明确 PASS、FAIL、BLOCKED 和复现方式。
+- 给出真实可追溯的三端构建/测试结论，明确 PASS、FAIL、BLOCKED、SKIPPED 和复现方式。
 - 形成 RAG 真实基线报告，以及阶段 02 的最小改造清单。
 - 未实际运行的检查不得写成通过；证据等级按 S 静态源码、T 本地自动化测试、I 基础设施集成、E 端到端业务操作区分。
 
@@ -32,9 +32,23 @@
 ### 审计基准
 
 - 仓库：`Linyun777/officecare-ai`，`main`。
-- Commit：`fb73f8113a4d53efbc12f4ea35e0d5c1b8af9563`（2026-10-17）。
-- 本地 `master` 的 `1a8affb` 与审计基准的业务代码一致；差异仅为文档和 README。
-- 审计在独立 worktree 执行，主工作目录保留文档变更。
+- 最新核实提交：`cd53c7da9340412b967a10d36815996db22abc59`（2026-10-17）。
+- 验收 worktree：`D:\Code\shizhan\officecare-ai-accept-01`，detached HEAD `cd53c7d`。
+- 本地主工作目录 `master` 的 `1a8affb` 与 GitHub `main` 非祖先关系，禁止用本地 `master` 覆盖 `main`；主目录仅保留未提交文档变更。
+- 本阶段没有修改生产代码；测试脚本、测试配置和结果都在被忽略的 `notes/` 下，未提交、未推送、未合并。
+
+### 测试环境
+
+- MySQL：`officecare_ai_test`（`192.168.100.128:3308`）。
+- Agent PostgreSQL：`officecare_agent_test`（`192.168.100.128:5433`）。
+- RabbitMQ：vhost `/officecare_test`（`192.168.100.128:5673`）。
+- Milvus：集合 `officecare_document_chunks_test_v1`（`192.168.100.128:19531`）。
+- Redis：database `15`。
+- 文档存储：`D:/officecare-data/p01-test/documents`。
+- Java：`8081` 正常测试实例，`8082` Agent 超时实例，`8083` 删除会话故障实例，`8084` 瞬时重试代理实例。
+- FastAPI：`8010` 正常测试实例，`8014` 故障代理，`8015` Milvus 不可用实例，`8016` Embedding 不可用实例。
+- 测试账号：`octest_a`（100）、`octest_b`（101）为 `oc_service`；`octest_c`（102）为普通角色。文档写接口使用测试库 `admin`。
+- 所有写链路只使用上述 `*_test` 资源，未对开发库和开发 Milvus 集合执行破坏性操作。
 
 ### 已完成的静态盘点（S）
 
@@ -44,23 +58,22 @@
 - 数据库迁移/初始化：`java-server/sql/officecare/001...020` 共 20 份编号 SQL。
 - FastAPI 提供文档处理、RAG、Agent、Assistant、health 端点；配置为内部服务令牌校验。
 - Java 侧包含 AI 对话、工单草稿、正式工单、RBAC、RabbitMQ 文档任务 Outbox、Retry、Dead Letter 实现。
-- 设计稿形成时尚未获得本阶段的本地测试结果、启动日志或真实模型评测数据；实际执行结果见本文“结果”，本条不再代表当前状态。
 
-### 第一批审计观察
+### 审计观察
 
-| 编号 | 优先级 | 证据 | 初步判断 | 所需验证 |
+| 编号 | 优先级 | 证据 | 当前判断 | 处理 |
 |---|---|---|---|---|
-| F01 | P0 | `OcAiAssistantServiceImpl.answerInConversation()` 标注 `@Transactional`，中途调用 FastAPI；Agent 使用 PostgreSQL Checkpointer | 外部推理与 MySQL 事务交叠，可能持锁过久，且两处存储无法共同原子提交 | 慢模型、模型成功但 MySQL 失败、同一 turnId 并发双击、重试恢复 |
-| F02 | P0 | `selectPersistedTurn()` 先查询后调用 Agent；唯一索引 `(conversation_id, turn_id, role)` 防止最终重复写入 | 具备幂等结果约束，但不能仅凭唯一索引证明并发下只调用一次模型 | 并发请求测试，记录 LLM 调用次数、两端最终状态 |
-| F03 | P0 | GitHub 仓库不存在工作流配置及历史 Actions 执行 | 无自动质量门禁 | 本地跑通后新增最小 CI（后续小改造） |
-| F04 | P1 | `requirements-dev.txt` 固定 `httpx2==2.9.1`，测试使用 `fastapi.testclient.TestClient` | 全新 venv 安装成功，`pip check` 无冲突，150 条测试通过；不是依赖缺陷 | 已关闭，不再列入改造 |
-| F05 | P1 | Python `/health` 返回 `0.1.0`；FastAPI 应用版本 `0.4.0`；Java Dashboard 内版本 `0.8.0` | 版本信息不统一（不代表功能故障） | 统一版本来源的技术方案，当前只登记 |
-| F06 | P1 | `rag_retrieval.py` 使用向量检索 + 有界扫描词法排序 + 邻块补充 | 已完成 52 条基线：Hit@5 100%，检索 MRR 0.9646，noise 0.42～0.54；上下文噪声偏高，但不在审计阶段重构 | 阶段 02 结合 F10 一起设计检索范围与噪声治理 |
-| F07 | P1 | `DocumentTaskRabbitConsumerTest` 含 ACK、重复消息、重投等测试 | 单元测试覆盖多种分支，尚不能替代真实 MQ/数据库故障演练 | RabbitMQ/DB 集成测试及进程中断演练 |
-| F08 | P2 | 未发现 Vue 的独立 test/spec 文件 | 前端以手工/E2E 验证为主 | 构建检查、关键页面手工验收；后续补 E2E |
-| F09 | P2 | `application.yml` 的 RabbitMQ 用户名和密码使用 `guest` 作为缺省值 | 本地开发方便，但生产环境漏配变量时会退回弱默认凭据 | 生产 Compose 启动检查必须确认变量已显式覆盖；后续可改为无默认值 |
-| F10 | P0 | KB1（DCP-L2550DW）的 `error.memory-full` 用例返回“安装新的墨粉盒才能继续接收传真”，引用 v18 chunk 1326；该块来自 MFC-7895DW 传真章节。v18 有 256 块提及非本型号内容，110 块通过现有守卫，其中 103 块非导航文本；v19 为 94/94（通过守卫/非导航），v20 为 114/114 | 现有 `is_applicable_to_model()` 只拦截带“相关型号/适用型号”或型号标题的块，未标注的多型号说明书内容会跨型号进入回答 | 阻断 P01-04“无跨型号引用”验收；阶段 02 首要修复候选。需要设计块级型号范围、文档拆分或更强的适用性守卫，并为该用例补回归测试 |
-| F11 | P2 | 4 条负样本（`negative.board-repair`、`negative.weather`、`negative.price`、`negative.prompt-injection`）在检索层各返回 5 条 evidence；同一批负样本在问答层 19/19 正确拒答 | 检索接口本身没有拒答门禁，当前调用方都经过问答层，因此未形成实际错误回答 | 若后续出现直接调用检索的入口，需要补负样本门禁；当前只登记，不阻断验收 |
+| F01 | P0 | `OcAiAssistantServiceImpl.answerInConversation()` 标注 `@Transactional`，中途调用 FastAPI；Agent 使用 PostgreSQL Checkpointer | 已通过超时与写入失败测试确认跨存储不一致风险；当前可恢复但非原子 | 阶段 02 设计改造 |
+| F02 | P0 | `selectPersistedTurn()` 先查询后调用 Agent；唯一索引 `(conversation_id, turn_id, role)` 防止最终重复写入 | 已通过 2/5/10 路并发确认：模型被重复调用，部分请求返回重复键或死锁 | 阶段 02 首要修复 |
+| F03 | P0 | 无 GitHub Actions 工作流 | 无自动质量门禁 | 后续补最小 CI |
+| F04 | P1 | `requirements-dev.txt` 固定 `httpx2==2.9.1` | 全新 venv 安装成功，`pip check` 通过 | 已关闭，不再登记 |
+| F05 | P1 | Python `/health` 返回 0.1.0；FastAPI 应用 0.4.0；Java Dashboard 0.8.0 | 版本信息不统一，不是功能故障 | 后续统一版本来源 |
+| F06 | P1 | `rag_retrieval.py` 使用向量检索 + 有界词法扫描 + 邻块补充 | 52 条基线 Hit@5 100%，检索 MRR 0.9646，noise 0.42～0.54 | 阶段 02 检索范围与噪声治理 |
+| F07 | P1 | `DocumentTaskRabbitConsumerTest` 覆盖 ACK、重复消息、重投 | 单测不能替代真实 MQ/DB 中断演练 | 补必要集成验证 |
+| F08 | P2 | 未发现 Vue 独立 test/spec | 前端以构建和手工验证为主 | 后续补关键 E2E |
+| F09 | P2 | `application.yml` 的 RabbitMQ 用户名和密码存在 `guest` 缺省值 | 生产漏配变量会退回弱默认凭据 | 后续去掉不安全默认值 |
+| F10 | P0 | 跨型号引用具体案例 `error.memory-full` 已修复；v18 仍有 1095 等表头块残余例外 | 具体错误已关闭，两个文本级残余场景仍在 | 保留回归测试，阶段 02 彻底治理 |
+| F11 | P2 | 4 条负样本在检索层仍返回 5 条证据；问答层 19/19 正确拒答 | 检索接口自身没有拒答门禁，当前调用方均经过问答层 | 后续设计统一相关性门禁 |
 
 ### 三条优先核验链路
 
@@ -75,12 +88,6 @@
 - P0：破坏数据一致性、越权或关键功能不可用。
 - P1：可靠性/可维护性受限，但有替代流程。
 - P2：体验和非阻塞优化。
-
-### 当前限制
-
-- 审计运行环境缺少 Docker/Compose，不能执行容器部署，也不能验证生产 Compose 的外部网络、容器内 DNS 与 Nginx。
-- 已完成 MySQL、Redis、RabbitMQ、Milvus、PostgreSQL 的协议级只读检查；仍没有 `*_test` 数据库，不能对开发库执行写链路、并发或故障注入。
-- 本地 Python 虚拟环境、Java/Maven、Node/npm 可用，P01-02 已实际执行；RAG 检索与问答基线已完成，报告保存在忽略目录。
 
 ## 内部步骤
 
@@ -100,11 +107,9 @@
 Python（在 `ai-service/`）：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
-python -m pip check
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Java（在 `java-server/`）：
@@ -134,6 +139,8 @@ npm run build:prod
 - 检查 Nginx、Java、FastAPI 健康端点；实际业务可用性须另行验证。
 
 验收：服务成功启动，容器/依赖健康，健康接口可访问，日志无持续错误。
+
+用户决定：本阶段跳过 P01-03，以上命令和检查均未执行。
 
 ### P01-04：知识库与 RAG 端到端
 
@@ -188,130 +195,161 @@ npm run build:prod
 
 ## 结果
 
-阶段性结果（2026-10-17，阶段仍在开发中）。
+阶段性结果（2026-10-17）。本阶段结论：**暂不通过**。P01-05 因同一 `turnId` 并发重复调用模型而 FAIL；P01-03 由用户决定跳过，未验证且不计入本轮阻塞。其余工作包有实际执行证据。
 
-### P01-01 环境与配置基线（I，部分完成）
+### 工作包结论
 
-- 审计 worktree：`D:\Code\shizhan\officecare-ai-audit-01`，detached HEAD `fb73f8113a4d53efbc12f4ea35e0d5c1b8af9563`，`git status` 干净；仓库未发现 `.github/workflows`。
-- 工具链：Java 17（Oracle JDK，`D:\code-tools\java\JDK\jdk17`）、Maven 3.9.4、Python 3.13.12、Node v24.16.0、npm 11.13.0；Docker 与 Compose 未安装。
-- 基础设施协议级检查（只读）：
-  - MySQL 8.0.46 @ `192.168.100.128:3308`：连接与查询成功；实例内只有 `officecare_ai`，没有 `*_test`。
-  - Redis @ `192.168.100.128:6381`：`PING=True`。
-  - RabbitMQ 4.1.8 @ `192.168.100.128:5673`，管理端 `15673`：队列数 4。
-  - Milvus @ `192.168.100.128:19531`：集合 `officecare_document_chunks_v1` 存在，`row_count=3271`，可查询实体 3270。
-  - Agent PostgreSQL @ `192.168.100.128:5433`：`select 1` 成功。
-  - localhost 的 `6379`、`19530`、`5432`、`5672` 未监听；实际依赖都在 `192.168.100.128`。
-- 现有进程：`8000` FastAPI、`8080` Java、`80` Vite dev server 均来自主工作目录 `D:\Code\shizhan\officecare-ai`，不是审计 worktree 启动。FastAPI `/health` 返回 200；Java `/health` 返回 200，`/actuator/health` 返回 401；`80` 端口是 Vite，不是 Nginx。这些结果只能作为服务级集成证据，不能作为 Compose 部署验收证据。
-- 未完成：本机未安装 Docker/Compose，无法验证生产 Compose 的外部网络 `officecare-network`、容器内 DNS 和 Nginx；`deploy/production/.env` 不存在。P01-03 仍为 BLOCKED。
-- 配置：仓库未跟踪真实 `.env`；主工作目录存在本地 `ai-service/.env` 与 `application-dev.yml`（均被忽略）；`deploy/production/.env` 不存在。生产 Compose 声明外部网络 `officecare-network`，MySQL/Redis/Milvus/PostgreSQL 为外部依赖，RabbitMQ 由 Compose 启动。
-- 敏感信息：公开仓库与示例配置中未发现高置信度硬编码 API Key、私钥或真实密码；`.env.example` 对应值为空，`application-dev.example.yml` 使用 `change-me` 占位。本地未跟踪的 `application-dev.yml` 含开发环境数据库、Redis、RabbitMQ 明文凭据（已被忽略、未进入提交），生产和共享环境必须用环境变量覆盖。未发现可确认的真实客户资料，RuoYi 默认 SQL 中的邮箱与手机号为演示数据。`application.yml` 的 RabbitMQ 凭据存在 `guest` 兜底默认值，登记为 F09。
+| 工作包 | 结论 | 证据等级 | 说明 |
+|---|---|---|---|
+| P01-01 环境与配置 | PASS（Docker 部分未验证） | S/I | 环境矩阵、测试资源、敏感信息检查完成；P01-03 用户跳过 |
+| P01-02 三端测试与构建 | PASS | T | Python 158、Java 90、Vue 生产构建成功 |
+| P01-03 部署与健康检查 | SKIPPED（用户决定跳过） | 未验证 | Compose、容器启动、网络、DNS、Nginx、容器健康检查未执行 |
+| P01-04 文档与 RAG 闭环 | PASS（F10 残余未关闭） | E/I | 上传、解析、索引、回答、版本、删除、重试、死信、Milvus/Embedding 故障均实测 |
+| P01-05 AI 多轮会话与跨库一致性 | FAIL | E/I | 多轮、重试、冲突、故障恢复通过；并发幂等失败，F01/F02 风险确认 |
+| P01-06 Agent 草稿与工单 | PASS（工单可见范围待决策） | E | 草稿、人工确认、并发确认、状态机、审计通过 |
+| P01-07 RAG 基线 | PASS（F11 未关闭） | I | 问答 52/52，检索 48/52，4 条失败均为负样本 |
 
-### P01-02 三端测试与构建（T）
+### P01-01 环境与配置（S/I）
 
-- Python：在 `ai-service` 创建全新 `.venv`，`pip install -r requirements-dev.txt` 成功；`pip check` 输出 `No broken requirements found.`；`pytest` 输出 `150 passed in 1.06s`（pytest 9.1.1）。`httpx2==2.9.1` 可正常安装，F04 不构成依赖故障。
-- Java：`mvn -pl ruoyi-officecare -am test` 为 BUILD SUCCESS，`Tests run: 90, Failures: 0, Errors: 0, Skipped: 0`，耗时 10.984s；`mvn -pl ruoyi-admin -am -DskipTests package` 为 BUILD SUCCESS，耗时 18.506s，生成 `ruoyi-admin/target/ruoyi-admin.jar`。
-- Vue：`npm ci` 成功，added 528 packages in 14s；`npm run build:prod` 成功，2469 modules transformed，built in 11.88s，生成 `dist/`。
-- 说明：以上均在审计 worktree 内实际执行。Python 测试不依赖真实 MySQL/MQ，外部服务以 fake/mock 配置为主；Java 测试中的数据库与 MQ 分支同样使用替身，不代表真实集成通过。
+- 工具链：Java 17（Oracle JDK）、Maven 3.9.4、Python 3.13.12、Node v24.16.0、npm 11.13.0；本机无 Docker/Compose、无 WSL。
+- 基础设施协议级检查通过：MySQL 8.0.46、Redis、RabbitMQ 4.1.8、Milvus、PostgreSQL 均可连接；实际依赖位于 `192.168.100.128` 的映射端口。
+- 测试资源已隔离到 `officecare_ai_test`、`officecare_agent_test`、`/officecare_test`、`officecare_document_chunks_test_v1`、Redis database `15` 和 `D:/officecare-data/p01-test`。
+- 公开仓库与示例配置未发现高置信度硬编码 API Key、私钥或真实密码；本地未跟踪的 `application-dev.yml` 含开发环境凭据，已被忽略。
+- `application.yml` 的 RabbitMQ `guest` 缺省值登记为 F09；`deploy/production/.env` 不存在。
+- 生产 Compose 声明外部网络 `officecare-network`，MySQL/Redis/Milvus/PostgreSQL 为外部依赖，RabbitMQ 由 Compose 启动；P01-03 用户决定跳过，生产 Compose、外部网络和容器内 DNS 未验证。
 
-### P01-03 部署与健康检查（BLOCKED）
+### P01-02 三端构建与测试（T）
 
-- 本机未安装 Docker/Compose，无法执行 `docker compose config`、构建镜像或启动容器。
-- `deploy/production/.env` 缺失；外部网络 `officecare-network` 与外部依赖的容器内 DNS 无法在本机验证。
-- 现有 `8000/8080/80` 是主工作目录的开发进程，只能证明端口与 `/health` 可用，不能替代 Compose 部署验收。
+| 端 | 实际命令 | 结果 |
+|---|---|---|
+| Python | `ai-service/.venv/Scripts/python.exe -m pytest -q` | `158 passed`；`pip check` 无冲突 |
+| Java 测试 | `mvn -pl ruoyi-officecare -am test` | `Tests run: 90, Failures: 0, Errors: 0, Skipped: 0` |
+| Java 打包 | `mvn -pl ruoyi-admin -am -DskipTests package` | BUILD SUCCESS，生成 `ruoyi-admin.jar` |
+| Vue | `npm ci && npm run build:prod` | 生产构建成功，生成 `dist/` |
 
-### P01-04 知识库与 RAG 端到端（部分 I，写链路 BLOCKED）
+说明：Python 与 Java 单测主要使用 fake/mock，不等同于真实 MySQL/MQ 集成；真实集成结果见 P01-04～P01-06。
 
-- 只读一致性通过：按 Java `selectCurrentIndexedVersionIds` 的同一条件查询，7 个当前索引版本的 MySQL `indexed_chunk_count` 与 Milvus 实际条数完全一致：13=7、14=49、15=13、17=2、18=1503、19=848、20=848，合计 3270。
-- Milvus `row_count=3271`，可查询实体 3270；差值 1 与已删除版本 21 的 1 个 chunk 数量吻合，判断为未压缩 tombstone（推断，未执行 compaction 验证）。
-- 跨型号检查失败：v18 有 256 块提及非本型号内容，110 块通过现有守卫，其中 103 块为非导航文本；v19 为 240/94/94，v20 为 145/114/114。实际泄漏案例见 P01-07 的 `error.memory-full`，登记为 F10。
-- 未执行：上传、解析、索引、版本更新/删除、无效文件、空内容、模型服务失败、Milvus 不可用、重复任务、重试/死信。原因是没有 `*_test` 数据库，按协作规则不能对 `officecare_ai` 执行写操作。
-- 结论：只读一致性达到 I；“文档→RAG”完整主流程和异常流程未达到 I/E，“无跨型号引用”验收不通过。
+### P01-03 部署与健康检查（SKIPPED，用户决定跳过）
 
-### P01-05 AI 多轮对话与跨库一致性（BLOCKED）
+- 用户决定跳过本项验收，本轮不再要求提供 Docker 主机或 SSH。
+- 未执行 `docker compose config`、镜像构建、容器启动、外部网络、容器内 DNS、Nginx 代理和容器健康检查；该项未达到 I，不能写成通过。
+- 已调查但未使用的环境：`192.168.100.128:22` 可建立 TCP 连接，root 公钥登录被拒；`10.11.154.223` 的 20056/20064/20084 转发端口均失败；Docker API `2375/2376` 未开放；本机无 Docker/Compose/WSL。
+- 现有开发进程的 `/health` 只能证明端口和服务可用，不能代替 Compose 部署验收。
+- 将来如需恢复部署验收，再在具备 `officecare-network` 和外部数据库依赖的主机上补 Compose 配置检查、启动、Nginx/Java/FastAPI 健康检查和持续日志观察。
 
-- 未执行多轮记忆、刷新还原、相同 `turnId` 重试/冲突、2～10 并发提交、慢模型、MySQL 写入失败、checkpoint 成功但 Java 超时、删除会话时 PostgreSQL 不可用等场景。
-- F01/F02 仍为静态判断（S）：`answerInConversation()` 在 MySQL 事务内调用 FastAPI Agent，且同一 `turnId` 是先查后调用，唯一索引只能约束最终写入。
-- 原因：并发与故障注入会写入开发库；没有 `*_test` 数据库和可注入故障的 Agent PostgreSQL 环境。该链路未达到 I/E。
+### P01-04 文档与 RAG 闭环（E/I，PASS）
 
-### P01-06 Agent 草稿、正式工单与权限（BLOCKED）
+主链路（测试库，文档 `9002`）：
 
-- 未执行草稿生成、人工编辑、重复确认、并发确认、无权限访问、跨用户草稿访问、非法状态流转和处理记录审计。
-- 仅确认静态事实：`confirmDraft()` 使用 `select ... for update`，按 `draftId + userId` 读取；确认更新同时带 `user_id`、`status='0'`、`work_order_id is null` 条件。该保护尚未经过并发实测。
-- 原因同上，没有 `*_test` 数据库；该链路未达到 I/E。
+- 上传 `9002 v1` → parse 成功（attempt=1）→ index 成功（attempt=1）→ 回答带引用 `documentId=9002, documentVersionId=9002`。
+- `indexed_chunk_count=1`，Milvus 实际 1 条；原始文件位于隔离存储根目录。
+- 重复提交 parse/index 均返回业务 500，任务数增量为 0。
+- 上传 `v2=9003` 后当前版本切换为 `9003`，回答只引用 `9003`，不引用旧版 `9002`。
+- 删除文档后文档与两个版本 `del_flag=2`，两个 `delete_index` 任务成功，Milvus 两版本均降为 0；删除后回答 `answered=false`、0 引用。
+- 非法扩展名与空文件均返回业务 500，文档数量不变。
 
-### P01-07 真实 RAG 评测与基线（I，完成检索与问答）
+异常与故障（E/I）：
 
-- 数据范围：3 份数据集共 52 条（28+12+12）。知识库与当前索引版本：
+| 场景 | 结果 |
+|---|---|
+| 永久解析失败 | 文档 `9003` / 版本 `9004`，`TEXT_ENCODING_UNSUPPORTED`，attempt=1，status=failed，Outbox `consume_status=4` 且有 `dead_letter_time`；该类错误不可重试，直接死信，符合策略 |
+| 瞬时解析失败自动重试 | 文档 `9006` / 版本 `9007`；故障代理令前 2 次 parse 返回 503，第 3 次成功；parse attempt=3、index attempt=1，Milvus 1 条，Outbox 依次为 retry、retry、success |
+| Milvus 不可用 | 隔离实例 `8015` 返回 HTTP 503 `MILVUS_UNAVAILABLE`；恢复正常实例后同一版本索引成功（Milvus 1 条），删除后 0 条 |
+| Embedding 服务失败 | 隔离实例 `8016` 返回 HTTP 503 `EMBEDDING_UNAVAILABLE`；恢复正常实例后索引成功，删除后 0 条 |
 
-| 知识库 | 编码 | 型号 | 文档版本 ID | 用例数 |
-|---|---|---|---|---|
-| 1 | `BROTHER_DCP_L2550DW` | DCP-L2550DW 黑白激光多功能一体机 | 13,14,15,17,18 | 28 |
-| 2 | `BROTHER_DCP_L2535DW` | DCP-L2535DW 黑白激光多功能一体机 | 19 | 12 |
-| 3 | `BROTHER_MFC_7895DW` | MFC-7895DW 黑白激光多功能一体机 | 20 | 12 |
+- 结论：写链路、版本切换、删除、重复提交、自动重试、死信、Milvus/Embedding 故障均有实际证据，P01-04 主验收通过。
+- 遗留：F10 具体案例 `error.memory-full` 已关闭，但 v18 的 `error.access-denied`、`error.duplex-disabled` 仍可命中 1095 表头块；这是已知文本级残余，阶段 02 处理。F11 检索层负样本仍返回证据，但问答层正确拒答。
 
-- 运行配置：Milvus 集合 `officecare_document_chunks_v1`；`top_k=5`、`score_threshold=0.45`；embedding `Qwen/Qwen3-VL-Embedding-8B`；chat `deepseek-v4-pro`；dense candidate 100、lexical scan 5000、lexical candidate 100、neighbor window 2。
-- 服务：`http://127.0.0.1:8000`，为审计前已启动的主工作目录开发进程，未在审计提交上重启；同目录业务代码与 `fb73f81` 一致，但不能证明进程内已加载字节码与审计提交完全一致。评测脚本与审计提交内容一致，SHA-256 差异仅为 CRLF。
-- 指标口径：`recall_at_k` 对正样本只要命中至少一条来源即记 1，实际含义是 Hit@K，不是严格 Recall@K；`noise_rate = 1 - 相关引用数 / 返回引用数`，仅在正样本上平均；拒绝准确率要求 `answered=false` 且无引用。
+### P01-05 AI 多轮会话与跨库一致性（E/I，FAIL）
 
-| 模式 | 用例 | 通过 | 通过率 | 错误 | P50 | P95 |
-|---|---|---|---|---|---|---|
-| 检索 | 52 | 48 | 92.3% | 0 | 409.1 ms | 954.1 ms |
-| 问答 | 52 | 51 | 98.1% | 0 | 1999.1 ms | 3752.9 ms |
+| 场景 | 期望 | 实际 | 结论 |
+|---|---|---|---|
+| 多轮记忆与刷新 | 4 条消息且 ID 稳定 | 4 条，角色 user/assistant/user/assistant，刷新 ID 一致，checkpoint message blob=6 | PASS |
+| 同 `turnId` 重试（同问题） | 返回同一 assistant 消息，不重复调模型 | 两次返回 assistantMessageId=18，第二次 0.02s，无新增 Agent/模型调用 | PASS |
+| 同 `turnId` 不同问题 | 冲突 | 业务 500，提示“本轮请求ID已用于其他问题”，无新增调用 | PASS |
+| 同 `turnId` 并发 5 路 | 全部成功，仅 1 次 Agent、≤2 次模型调用、1 对消息 | 1 成功、4 失败（3 重复键 + 1 死锁），5 次 Agent、10 次模型调用，最终 2 行 | **FAIL（F02 确认）** |
+| 同 `turnId` 并发 2 路 | 同上 | 1 成功、1 失败，2 次 Agent、4 次模型调用 | **FAIL（F02 确认）** |
+| 同 `turnId` 并发 10 路 | 同上 | 1 成功、9 失败，10 次 Agent、20 次模型调用 | **FAIL（F02 确认）** |
+| 慢 Agent 期间 MySQL 事务 | 不长时间持锁 | 单次请求 2.52s，事务 RUNNING 最长约 3s | 风险确认（F01） |
+| Agent 成功、MySQL 写入失败 | 请求失败但不是最终重复 | Java 500，MySQL 0 行，checkpoint 已保存；去掉注入触发器后重试 200，无新增模型调用，写入 2 行 | PASS（可恢复，但非原子） |
+| checkpoint 成功、Java 调用超时 | 返回失败且可恢复 | 1.24s 超时返回 500，PG 4 个 message blob / 8 行 checkpoint，MySQL 0 行；正常实例重试 200，无新增模型调用，写入 2 行 | **FAIL（F01 跨库不一致已确认）** |
+| 删除会话时 AI/PG 不可用 | 删除失败且数据保留 | 业务 500，`del_flag=0`，消息和 checkpoint 保留；恢复后删除成功，`del_flag=2`，checkpoint 清零 | PASS |
+| 引用版本撤销 | 历史记忆不能替代当前证据 | `answered=false`，0 引用，未调用 FastAPI | PASS |
 
-- 检索明细：33 条正样本 Hit@5 = 100%，MRR = 0.9646，noise = 0.4545；19 条负样本中 15 条返回 0 条 evidence，4 条各返回 5 条（`negative.board-repair`、`negative.weather`、`negative.price`、`negative.prompt-injection`）。
-- 问答明细：33 条正样本全部回答，19 条负样本全部拒答，引用命中率 100%；唯一失败为 `error.memory-full`。上述 4 条负样本在问答层均正确拒答，因此检索层的 4 条失败不是错误回答，登记为 F11。
-- 分组结果：
+- 结论：P01-05 **FAIL**。核心问题是同一 `turnId` 并发下模型被重复调用，且请求失败；唯一索引只能保证最终不重复写入，不能阻止重复推理。超时场景还存在“PG 已保存、MySQL 未保存”的跨存储窗口，但可通过重试恢复。
+- F01、F02 已从静态风险升级为测试环境确认的问题；阶段 01 只记录，不在无设计情况下修复。
 
-| 知识库 | 用例 | 检索通过 | 问答通过 | 检索 P95 | 问答 P95 | Hit@5 | 检索 MRR | noise |
-|---|---|---|---|---|---|---|---|---|
-| 1 | 28 | 24 | 27 | 961.6 ms | 4216.1 ms | 100% | 0.942 | 0.420 |
-| 2 | 12 | 12 | 12 | 715.7 ms | 3261.7 ms | 100% | 1.000 | 0.467 |
-| 3 | 12 | 12 | 12 | 633.3 ms | 3463.7 ms | 100% | 1.000 | 0.543 |
+关键错误输出：
 
-- 失败案例 `error.memory-full`：期望答案包含“内存已满/内存”与“降低分辨率/清除内存/退出”；实际回答“根据资料，当设备提示内存已满时，需要安装新的墨粉盒，才能继续接收传真。[资料1]”。引用为 v18、page 472、chunk 1326，标题“继续模式下墨粉用尽时”，原文含“内存已满时>，必须安装新的墨粉盒，才能继续接收传真”；同页前文 chunk 1325 明确标注“相关型号: MFC-7895DW”，因此该内容属于 MFC-7895DW 传真场景，不是 DCP-L2550DW 的处理方式。登记为 F10。
-- 报告：`ai-service/evaluation-results/audit-01-fb73f81/`（已被 `.gitignore` 忽略），每组检索/问答各一份 JSON 与 Markdown，生成时间为 2026-10-17T04:55Z～04:58Z。
-- 复现：按上表参数调用 `ai-service/scripts/evaluate_rag.py`；内部 Token 只从本机运行环境读取，不写入文档或命令行参数。
-- 未做：重复运行与方差、严格 Recall@K、52 条答案的逐条人工复核。当前数字是单次运行基线，不预设达标线。
+- 并发 5 路：3 个请求返回 `Duplicate entry '12-...-user' for key 'oc_ai_message.uk_oc_ai_message_turn_role'`，1 个请求返回 `Deadlock found when trying to get lock; try restarting transaction`；最终 MySQL 只有 2 行，但只有 1 个请求成功。
+- 并发 2 路：`fastapi_turns_delta=2`、`llm_calls_delta=4`、`success_count=1`；并发 10 路：`fastapi_turns_delta=10`、`llm_calls_delta=20`、`success_count=1`。不能仅凭“最终 2 行”判定通过。
+- 超时实例：Java 在 1.24s 返回“调用FastAPI多轮AI助手接口失败”，PG 已有 4 个 message blob / 8 行 checkpoint，MySQL 0 行。
+- Agent 成功但 MySQL 写入失败：Java 返回 `P01 injected write failure`，MySQL 0 行，checkpoint 已保存；故障移除后重试成功。
+- 删除会话时 PG 不可用：返回 `Injected PostgreSQL unavailability for P01-05 delete test.`，会话和 checkpoint 均保留；恢复后删除成功。
+- 慢模型事务：单次请求 2.52s，`information_schema.innodb_trx` 观察到 MySQL 事务 RUNNING 最长约 3s；风险是结构性的，模型更慢时持锁时间会继续拉长。
 
-### F10 修复结果（2026-10-17，`fix/f10-model-scope-guard`）
+### P01-06 Agent 草稿、正式工单与权限（E，PASS）
 
-- 代码：`ai-service/app/services/retrieval_quality.py`、`ai-service/app/services/rag_retrieval.py`、`ai-service/app/services/rag_answer_cache.py`；新增 8 条回归用例。Python 全量 `158 passed in 1.96s`。
-- 设计：
-  1. 块自身有明确型号声明时，按自身声明过滤。
-  2. 块自身无声明时，只继承紧邻前一块（lookback=1）的型号组标题或“相关型号”声明；仅当声明与当前型号完全不相交时过滤。
-  3. 独立成行的型号组标题（如 `DCP-7195DW/MFC-7895DW`）参与后续块的继承作用域，但表头块自身保留，避免误伤共享错误表行。
-  4. 文档中的 `[错误标签]` 与问题文本精确匹配时加权；标签至少 3 字且包含状态/错误词，避免 `[传真]`、`[打印机]` 等菜单名造成误命中。
-  5. 检索算法版本写入 RAG 缓存键，部署后不会继续命中旧的跨型号回答。
-- 验证：
-  - `error.memory-full`：检索 1/1、问答 1/1；回答引用 v18 chunk 1092（DCP 组“降低分辨率/清除内存”），不再引用 1326/1096。
-  - KB1 28 条：检索 24/28、问答 28/28（基线 24/28、27/28）。
-  - KB2 12 条：检索 12/12、问答 12/12。
-  - KB3 12 条：检索 12/12、问答 12/12。前一次运行曾出现 `mfc7895.fax.pc-send` 漏答“黑白传真”，单条重跑 3/3 通过，最终复跑 12/12，判断为生成波动而非检索回归。
-  - 合计：问答 52/52（基线 51/52）；检索 48/52，4 条失败全部是负样本，属 F11，不是新增回归。
-  - 运行条件：评测服务关闭 Agent 记忆（Windows 下 psycopg 异步池不可用）和 Redis（避免旧缓存影响）；词法阈值保持默认 0.18，未改产品配置。
-- 结论：F10 的具体泄漏复现已关闭，`error.memory-full` 达到“无跨型号引用”。全库仍保留两个文本级已知例外：DCP 知识库的 `error.access-denied`、`error.duplex-disabled` 可命中 v18 chunk 1095（MFC 组表），因为该表头块自身保留；对应问题措辞只匹配 MFC 表。彻底消除需要阶段 02 的按型号拆分文档或表行级范围，不在本阶段改数据集期望。
-- 遗留：F11（检索层负样本不拒答）仍在；阶段 02 可设计统一的最小相关性门禁。RAG 基线为单次运行，KB3 单条问答存在生成波动。
+- 主流程：设备分析约 6.34s，工具顺序为 `inspect_device_context → search_product_knowledge → build_work_order_draft`；分析后只有草稿（`draft_id=7`），没有正式工单。
+- 人工编辑持久化成功；用户 `octest_b` 对 `octest_a` 草稿的获取、编辑、确认均被拒绝；普通角色 `octest_c` 的草稿、工单、分析接口均返回 403，且没有新增 AI 调用或草稿。
+- 确认后创建 1 张正式工单（`work_order_id=5`），草稿状态变为已确认；重复确认返回同一工单，不新增工单。
+- 非法状态流转被拒绝；状态机 `0→1→2→3` 成功，关闭后重开和追加记录被拒绝。
+- 工单记录 7 条：`CREATE/COMMENT/ASSIGN/STATUS/COMMENT/STATUS/STATUS`，操作人都能追溯到 `octest_a`；操作日志增量：分析 1、草稿编辑 1、确认 2、状态 5、记录 3，总计 12。
+- 并发确认 5 路全部成功，返回同一工单 `6`，只创建 1 张工单、1 条 CREATE 记录。
+- 权限边界：草稿按用户隔离；正式工单当前按 `oc_service` 角色可见，`octest_b` 可读取 `octest_a` 的工单详情。这是当前 RBAC 行为，不登记为越权 Bug，但阶段 02 需要决定是否按用户/组织收紧可见范围。
+- 最终测试数据：主流程草稿 7、工单 5；并发草稿 8、工单 6。
 
-### 阶段 02 最小改造候选
+### P01-07 RAG 真实基线（I，PASS）
 
-按用户指定的“Java 后端优先”排序：
+- 数据范围：3 份数据集共 52 条（28+12+12）；知识库 1/2/3 对应 DCP-L2550DW、DCP-L2535DW、MFC-7895DW。
+- 运行配置：Milvus 测试集合；`top_k=5`、`score_threshold=0.45`；embedding `Qwen/Qwen3-VL-Embedding-8B`；chat `deepseek-v4-pro`；dense candidate 100、lexical scan 5000、lexical candidate 100、neighbor window 2。
+- 指标口径：`recall_at_k` 对正样本至少命中一条来源即记 1，实际含义是 Hit@K；`noise_rate = 1 - 相关引用数 / 返回引用数`；拒绝准确率要求 `answered=false` 且无引用。
 
-1. F01/F02（P0，Java）：把外部 Agent 调用移出 `@Transactional`；为同一 `turnId` 增加服务端幂等占位/锁与冲突返回；设计跨存储失败恢复。验收需要 `*_test` 数据库和并发/故障注入用例。
-2. F10（P0，RAG，具体复现已修复）：保留内容级守卫与回归用例；阶段 02 再设计按型号拆分文档或表行级范围，消除 1095 表头块等残余文本级例外。F11 单独设计检索层负样本门禁。
-3. F03（P0，CI）：在本地三端命令稳定后新增最小 GitHub Actions，至少覆盖 Python pytest、Java test/package、Vue build。
-4. F09（P2）：去掉 RabbitMQ `guest` 兜底默认值，生产启动时缺失变量直接失败。
-5. F05（P1）：统一 Python/Java/前端的版本来源。
-6. 测试环境（阻塞项）：准备 `*_test` 数据库与可注入故障的 Agent PostgreSQL/MQ 环境，才能关闭 P01-04/05/06 的 BLOCKED。
+| 模式 | 用例 | 通过 | 通过率 | P50 | P95 |
+|---|---|---|---|---|---|
+| 检索 | 52 | 48 | 92.3% | 409.1 ms | 954.1 ms |
+| 问答 | 52 | 52 | 100% | 约 2.0 s | 约 3.8 s |
 
-F04 已证明不是缺陷（`httpx2==2.9.1` 可安装，`pip check` 通过），不再列入改造。
+- 检索：33 条正样本 Hit@5 = 100%，MRR = 0.9646，noise = 0.4545；19 条负样本中 15 条返回 0 条 evidence，4 条各返回 5 条（F11）。
+- 问答：33 条正样本全部回答，19 条负样本全部拒答，引用命中率 100%；F10 具体案例已修复，`error.memory-full` 只引用 DCP 的 v18 1092。
+- 残余：F10 的两个文本级例外和 F11 的检索层负样本门禁未关闭；RAG 基线为单次运行，未做方差和逐条人工复核。
 
-### 未测项与遗留
+### 实际执行命令与产物
 
-- P01-03：Compose 外部网络、容器内 DNS、Nginx、容器健康检查未验证。
-- P01-04：上传/解析/索引/版本更新/删除、无效文件、空内容、Milvus 不可用、重复任务、重试/死信未执行。
-- P01-05：并发 `turnId`、慢模型、跨存储失败注入、删除会话时 PostgreSQL 不可用未执行。
-- P01-06：重复/并发确认、越权、跨用户草稿、非法状态流转未执行。
-- F06：Hit@5 高但 noise 0.42～0.54，检索上下文噪声偏高；本轮只量化，不重构。
-- F07：RabbitMQ 单元测试未替代真实 MQ/DB 故障演练。
-- F08：前端没有独立测试，只有生产构建通过。
-- RAG 基线为单次运行，未做重复运行方差与人工逐条复核。
+| 用途 | 命令/产物 |
+|---|---|
+| P01-02 Python | `ai-service/.venv/Scripts/python.exe -m pytest -q` → 158 passed |
+| P01-02 Java | `mvn -pl ruoyi-officecare -am test`；`mvn -pl ruoyi-admin -am -DskipTests package` |
+| P01-02 Vue | `npm ci`；`npm run build:prod` |
+| P01-04 主链路 | `notes/p01_04_test.py` → `notes/p01-04-results.json` |
+| P01-04 故障补测 | `notes/p01_04_faults.py` → `notes/p01-04-faults.json` |
+| P01-05 主场景 | `notes/p01_05_test.py` → `notes/p01-05-results.json` |
+| P01-05 并发扩展 | `notes/p01_05_concurrency_scale.py` → `notes/p01-05-concurrency-scale.json` |
+| P01-05 超时/删除 | `notes/p01_05_timeout.py`、`notes/p01_05_delete.py` |
+| P01-06 主流程 | `notes/p01_06_test.py` → `notes/p01-06-results.json` |
+| P01-06 工单权限 | `notes/p01_06_workorder_permission.py` → `notes/p01-06-workorder-permission.json` |
+| P01-07 RAG | `ai-service/scripts/evaluate_rag.py`，报告在忽略目录 `ai-service/evaluation-results/audit-01-fb73f81/` |
+
+测试脚本、日志和结果均在 `notes/` 和忽略目录；没有进入 Git。测试资源已在验收记录写入后回收：`officecare_ai_test`、`officecare_agent_test`、Milvus 测试集合、RabbitMQ `/officecare_test`、Redis database 15 和 `D:/officecare-data/p01-test` 均已删除或清空；主开发服务 `8000/8080/80` 未受影响。清理后的 `notes/` 结果仍保留，用于复现和阶段 02 对照。
+
+### 阶段 02 最小改造清单
+
+按用户指定的 Java 后端优先排序：
+
+1. **F02（P0，Java）**：为同一 `turnId` 增加服务端幂等占位/锁，在调用 Agent 前原子取得处理权；重复请求返回同一结果或明确冲突，确保模型最多调用一次。需要覆盖 2/5/10 路并发和异常回滚。
+2. **F01（P0，Java）**：把 FastAPI Agent 调用移出 MySQL `@Transactional`；拆成短事务读取、外部调用、短事务写入，并设计 PG checkpoint 与 MySQL 消息的补偿/对账。覆盖 Agent 成功但 MySQL 失败、Java 超时、进程中断和重试恢复。
+3. **P01-03 部署验收（用户已跳过）**：本轮不作为阻塞项；如以后恢复部署验收，再补 Compose 配置、容器启动、`officecare-network`、容器内 DNS、Nginx 和健康检查，不新建基础设施。
+4. **F03（P0，CI）**：增加最小 GitHub Actions，覆盖 Python pytest、Java test/package、Vue build。
+5. **F10/F11（RAG，P0/P2）**：保留 F10 回归用例；阶段 02 设计按型号拆分文档或表行级范围，消除 1095 表头块残余；为检索层负样本设计统一门禁。
+6. **F09（P2）**：移除 RabbitMQ `guest` 默认值，生产缺变量直接启动失败。
+7. **F05/F06/F07/F08（P1/P2）**：统一版本来源、治理检索噪声、补真实 MQ/DB 故障演练、补关键前端 E2E。
+8. **工单可见范围（产品决策）**：确认正式工单继续按 `oc_service` 角色可见，还是按用户/组织收紧；在决策前不把当前 RBAC 行为当作越权缺陷修复。
+
+### 未完成项与遗留
+
+- P01-03：用户决定跳过，Compose 外部网络、容器内 DNS、Nginx、容器健康检查未验证；不再作为本轮阻塞。
+- P01-05：F01、F02 的正式修复未做，留待阶段 02；当前只完成复现和恢复验证。
+- P01-04：F10 两个文本级残余、F11 检索层负样本门禁未关闭。
+- P01-07：RAG 为单次运行，未做重复运行方差和人工逐条复核。
+- F03/F05/F06/F07/F08/F09 仍未修复，已列入后续阶段。
+- 本阶段未提交、未推送、未合并；后续提交和推送需用户明确要求。
