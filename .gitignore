@@ -1,0 +1,66 @@
+# IDEA
+.idea/
+*.iml
+
+# Java
+**/target/
+*.log
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.venv/
+**/venv/
+**/.env
+
+# Vue
+**/node_modules/
+**/dist/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!web-admin/.env.development
+!web-admin/.env.production
+!web-admin/.env.staging
+**/application-local.yml
+**/application-dev.yml
+**/application-prod.yml
+
+# Credentials
+*.pem
+*.key
+*.p12
+*.jks
+
+# Data and models
+data/
+uploads/
+models/
+checkpoints/
+vector-data/
+milvus-data/
+mysql-data/
+redis-data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local-only development and process documentation
+/docs/
+/java-server/doc/
+/ai-service/README.md
+/deploy/production/README.md
+/java-server/README.md
+/web-admin/README.md
+**/.github/FUNDING.yml
+
+# Local agent tooling and generated artifacts
+/.claude/
+/.yonbuddy/
+/tmp/
+/output/
+/sample-data/

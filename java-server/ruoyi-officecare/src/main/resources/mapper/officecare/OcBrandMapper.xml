@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcBrandMapper">
+
+    <resultMap type="OcBrand" id="OcBrandResult">
+        <id property="brandId" column="brand_id" />
+        <result property="brandCode" column="brand_code" />
+        <result property="brandName" column="brand_name" />
+        <result property="description" column="description" />
+        <result property="sortOrder" column="sort_order" />
+        <result property="status" column="status" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectBrandVo">
+        select brand_id, brand_code, brand_name, description, sort_order, status, del_flag,
+               create_by, create_time, update_by, update_time, remark
+        from oc_brand
+    </sql>
+
+    <select id="selectBrandList" parameterType="OcBrand" resultMap="OcBrandResult">
+        <include refid="selectBrandVo"/>
+        <where>
+            del_flag = '0'
+            <if test="brandCode != null and brandCode != ''">
+                and brand_code like concat('%', #{brandCode}, '%')
+            </if>
+            <if test="brandName != null and brandName != ''">
+                and brand_name like concat('%', #{brandName}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by sort_order, brand_id
+    </select>
+
+    <select id="selectBrandOptions" resultMap="OcBrandResult">
+        <include refid="selectBrandVo"/>
+        where del_flag = '0'
+        order by sort_order, brand_id
+    </select>
+
+    <select id="selectBrandById" parameterType="Long" resultMap="OcBrandResult">
+        <include refid="selectBrandVo"/>
+        where brand_id = #{brandId}
+          and del_flag = '0'
+    </select>
+
+    <select id="selectBrandByCode" parameterType="String" resultMap="OcBrandResult">
+        <include refid="selectBrandVo"/>
+        where brand_code = #{brandCode}
+        limit 1
+    </select>
+
+    <select id="selectBrandCount" resultType="long">
+        select count(1)
+        from oc_brand
+        where del_flag = '0'
+    </select>
+
+    <insert id="insertBrand" parameterType="OcBrand" useGeneratedKeys="true" keyProperty="brandId">
+        insert into oc_brand
+        (
+            brand_code, brand_name, description, sort_order, status, del_flag,
+            create_by, create_time, remark
+        )
+        values
+        (
+            #{brandCode}, #{brandName}, #{description}, #{sortOrder}, #{status}, '0',
+            #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateBrand" parameterType="OcBrand">
+        update oc_brand
+        <set>
+            brand_code = #{brandCode},
+            brand_name = #{brandName},
+            description = #{description},
+            sort_order = #{sortOrder},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        </set>
+        where brand_id = #{brandId}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteBrandByIds">
+        update oc_brand
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where brand_id in
+        <foreach collection="brandIds" item="brandId" open="(" separator="," close=")">
+            #{brandId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

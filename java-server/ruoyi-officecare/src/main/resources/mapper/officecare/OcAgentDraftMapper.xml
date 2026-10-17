@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcAgentDraftMapper">
+
+    <resultMap type="OcAgentDraft" id="OcAgentDraftResult">
+        <id property="draftId" column="draft_id" />
+        <result property="userId" column="user_id" />
+        <result property="customerOrgId" column="customer_org_id" />
+        <result property="deviceId" column="device_id" />
+        <result property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="customerName" column="customer_name" />
+        <result property="deviceName" column="device_name" />
+        <result property="serialNumber" column="serial_number" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelName" column="model_name" />
+        <result property="knowledgeBaseName" column="knowledge_base_name" />
+        <result property="issueDescription" column="issue_description" />
+        <result property="answered" column="answered" />
+        <result property="summary" column="summary" />
+        <result property="troubleshootingStepsJson" column="troubleshooting_steps_json" />
+        <result property="safetyWarningsJson" column="safety_warnings_json" />
+        <result property="requiresOnSiteService" column="requires_on_site_service" />
+        <result property="refusalReason" column="refusal_reason" />
+        <result property="draftTitle" column="draft_title" />
+        <result property="draftFaultDescription" column="draft_fault_description" />
+        <result property="draftPriority" column="draft_priority" />
+        <result property="assigneeUserId" column="assignee_user_id" />
+        <result property="assigneeUserName" column="assignee_user_name" />
+        <result property="assigneeNickName" column="assignee_nick_name" />
+        <result property="workOrderRemark" column="work_order_remark" />
+        <result property="citationsJson" column="citations_json" />
+        <result property="toolTraceJson" column="tool_trace_json" />
+        <result property="modelNameUsed" column="model_name_used" />
+        <result property="status" column="status" />
+        <result property="workOrderId" column="work_order_id" />
+        <result property="workOrderNo" column="work_order_no" />
+        <result property="confirmedTime" column="confirmed_time" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectDraftVo">
+        select a.draft_id, a.user_id, a.customer_org_id, a.device_id,
+               a.knowledge_base_id, a.customer_name, a.device_name,
+               a.serial_number, a.brand_name, a.model_name,
+               a.knowledge_base_name, a.issue_description, a.answered,
+               a.summary, a.troubleshooting_steps_json,
+               a.safety_warnings_json, a.requires_on_site_service,
+               a.refusal_reason, a.draft_title, a.draft_fault_description,
+               a.draft_priority, a.assignee_user_id,
+               u.user_name as assignee_user_name,
+               u.nick_name as assignee_nick_name, a.work_order_remark,
+               a.citations_json, a.tool_trace_json, a.model_name_used,
+               a.status, a.work_order_id, w.work_order_no, a.confirmed_time,
+               a.del_flag, a.create_by, a.create_time, a.update_by,
+               a.update_time, a.remark
+        from oc_agent_draft a
+        left join sys_user u on u.user_id = a.assignee_user_id
+        left join oc_work_order w on w.work_order_id = a.work_order_id
+    </sql>
+
+    <select id="selectDraftList" parameterType="OcAgentDraft"
+            resultMap="OcAgentDraftResult">
+        <include refid="selectDraftVo" />
+        <where>
+            a.del_flag = '0'
+            and a.user_id = #{userId}
+            <if test="status != null and status != ''">
+                and a.status = #{status}
+            </if>
+            <if test="draftTitle != null and draftTitle != ''">
+                and a.draft_title like concat('%', #{draftTitle}, '%')
+            </if>
+            <if test="deviceName != null and deviceName != ''">
+                and a.device_name like concat('%', #{deviceName}, '%')
+            </if>
+        </where>
+        order by a.create_time desc, a.draft_id desc
+    </select>
+
+    <select id="selectDraftByIdAndUserId" resultMap="OcAgentDraftResult">
+        <include refid="selectDraftVo" />
+        where a.draft_id = #{draftId}
+          and a.user_id = #{userId}
+          and a.del_flag = '0'
+    </select>
+
+    <select id="selectDraftForUpdate" resultMap="OcAgentDraftResult">
+        select a.*
+        from oc_agent_draft a
+        where a.draft_id = #{draftId}
+          and a.user_id = #{userId}
+          and a.del_flag = '0'
+        for update
+    </select>
+
+    <insert id="insertDraft" parameterType="OcAgentDraft"
+            useGeneratedKeys="true" keyProperty="draftId">
+        insert into oc_agent_draft
+        (
+            user_id, customer_org_id, device_id, knowledge_base_id,
+            customer_name, device_name, serial_number, brand_name, model_name,
+            knowledge_base_name, issue_description, answered, summary,
+            troubleshooting_steps_json, safety_warnings_json,
+            requires_on_site_service, refusal_reason, draft_title,
+            draft_fault_description, draft_priority, assignee_user_id,
+            work_order_remark, citations_json, tool_trace_json,
+            model_name_used, status, del_flag, create_by, create_time
+        )
+        values
+        (
+            #{userId}, #{customerOrgId}, #{deviceId}, #{knowledgeBaseId},
+            #{customerName}, #{deviceName}, #{serialNumber}, #{brandName},
+            #{modelName}, #{knowledgeBaseName}, #{issueDescription},
+            #{answered}, #{summary}, #{troubleshootingStepsJson},
+            #{safetyWarningsJson}, #{requiresOnSiteService}, #{refusalReason},
+            #{draftTitle}, #{draftFaultDescription}, #{draftPriority},
+            #{assigneeUserId}, #{workOrderRemark}, #{citationsJson},
+            #{toolTraceJson}, #{modelNameUsed}, #{status}, '0',
+            #{createBy}, sysdate()
+        )
+    </insert>
+
+    <update id="updateEditableDraft" parameterType="OcAgentDraft">
+        update oc_agent_draft
+        set draft_title = #{draftTitle},
+            draft_fault_description = #{draftFaultDescription},
+            draft_priority = #{draftPriority},
+            assignee_user_id = #{assigneeUserId},
+            work_order_remark = #{workOrderRemark},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where draft_id = #{draftId}
+          and user_id = #{userId}
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+    <update id="markDraftConfirmed">
+        update oc_agent_draft
+        set status = '1',
+            work_order_id = #{workOrderId},
+            confirmed_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where draft_id = #{draftId}
+          and user_id = #{userId}
+          and status = '0'
+          and work_order_id is null
+          and del_flag = '0'
+    </update>
+
+    <update id="cancelDrafts">
+        update oc_agent_draft
+        set status = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where draft_id in
+        <foreach collection="draftIds" item="draftId"
+                 open="(" separator="," close=")">
+            #{draftId}
+        </foreach>
+          and user_id = #{userId}
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+</mapper>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcAiMessageCitationMapper">
+
+    <resultMap type="com.ruoyi.officecare.domain.OcAiMessageCitation"
+               id="OcAiMessageCitationResult">
+        <id property="citationId" column="citation_id" />
+        <result property="messageId" column="message_id" />
+        <result property="citationIndex" column="citation_index" />
+        <result property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="brandId" column="brand_id" />
+        <result property="modelId" column="model_id" />
+        <result property="documentId" column="document_id" />
+        <result property="documentVersionId" column="document_version_id" />
+        <result property="documentTitle" column="document_title" />
+        <result property="originalFileName" column="original_file_name" />
+        <result property="pageNumber" column="page_number" />
+        <result property="chunkIndex" column="chunk_index" />
+        <result property="heading" column="heading" />
+        <result property="quote" column="quote_text" />
+        <result property="score" column="score" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <select id="selectCitationListByConversation"
+            resultMap="OcAiMessageCitationResult">
+        select citation.citation_id, citation.message_id,
+               citation.citation_index, citation.knowledge_base_id,
+               citation.brand_id, citation.model_id, citation.document_id,
+               citation.document_version_id, citation.document_title,
+               citation.original_file_name, citation.page_number,
+               citation.chunk_index, citation.heading, citation.quote_text,
+               citation.score, citation.create_time
+        from oc_ai_message_citation citation
+        inner join oc_ai_message msg on msg.message_id = citation.message_id
+        inner join oc_ai_conversation conv
+            on conv.conversation_id = msg.conversation_id
+        where conv.conversation_id = #{conversationId}
+          and conv.user_id = #{userId}
+          and conv.status = '0'
+          and conv.del_flag = '0'
+        order by citation.message_id, citation.citation_index
+    </select>
+
+    <insert id="insertCitation"
+            parameterType="com.ruoyi.officecare.domain.OcAiMessageCitation"
+            useGeneratedKeys="true" keyProperty="citationId">
+        insert into oc_ai_message_citation
+        (
+            message_id, citation_index, knowledge_base_id, brand_id, model_id,
+            document_id, document_version_id, document_title,
+            original_file_name, page_number, chunk_index, heading,
+            quote_text, score, create_time
+        )
+        values
+        (
+            #{messageId}, #{citationIndex}, #{knowledgeBaseId}, #{brandId},
+            #{modelId}, #{documentId}, #{documentVersionId}, #{documentTitle},
+            #{originalFileName}, #{pageNumber}, #{chunkIndex}, #{heading},
+            #{quote}, #{score}, sysdate()
+        )
+    </insert>
+
+</mapper>

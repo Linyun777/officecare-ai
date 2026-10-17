@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcDeviceMapper">
+
+    <resultMap type="OcDevice" id="OcDeviceResult">
+        <id property="deviceId" column="device_id" />
+        <result property="customerOrgId" column="customer_org_id" />
+        <result property="customerCode" column="customer_code" />
+        <result property="customerName" column="customer_name" />
+        <result property="brandId" column="brand_id" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelId" column="model_id" />
+        <result property="modelCode" column="model_code" />
+        <result property="modelName" column="model_name" />
+        <result property="deviceName" column="device_name" />
+        <result property="serialNumber" column="serial_number" />
+        <result property="installLocation" column="install_location" />
+        <result property="purchaseDate" column="purchase_date" />
+        <result property="installDate" column="install_date" />
+        <result property="warrantyEndDate" column="warranty_end_date" />
+        <result property="status" column="status" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectDeviceVo">
+        select d.device_id, d.customer_org_id, c.customer_code, c.customer_name,
+               m.brand_id, b.brand_name, d.model_id, m.model_code, m.model_name,
+               d.device_name, d.serial_number, d.install_location,
+               d.purchase_date, d.install_date, d.warranty_end_date,
+               d.status, d.del_flag, d.create_by, d.create_time,
+               d.update_by, d.update_time, d.remark
+        from oc_device d
+        inner join oc_customer_org c on c.customer_org_id = d.customer_org_id
+        inner join oc_product_model m on m.model_id = d.model_id
+        inner join oc_brand b on b.brand_id = m.brand_id
+    </sql>
+
+    <select id="selectDeviceList" parameterType="OcDevice"
+            resultMap="OcDeviceResult">
+        <include refid="selectDeviceVo"/>
+        <where>
+            d.del_flag = '0'
+            <if test="customerOrgId != null">
+                and d.customer_org_id = #{customerOrgId}
+            </if>
+            <if test="brandId != null">
+                and m.brand_id = #{brandId}
+            </if>
+            <if test="modelId != null">
+                and d.model_id = #{modelId}
+            </if>
+            <if test="deviceName != null and deviceName != ''">
+                and d.device_name like concat('%', #{deviceName}, '%')
+            </if>
+            <if test="serialNumber != null and serialNumber != ''">
+                and d.serial_number like concat('%', #{serialNumber}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and d.status = #{status}
+            </if>
+        </where>
+        order by c.customer_name, b.brand_name, m.model_name, d.device_id
+    </select>
+
+    <select id="selectDeviceOptions" parameterType="Long"
+            resultMap="OcDeviceResult">
+        <include refid="selectDeviceVo"/>
+        where d.del_flag = '0'
+          and d.status = '0'
+          and c.del_flag = '0'
+          and c.status = '0'
+          and m.del_flag = '0'
+          and m.status = '0'
+          and b.del_flag = '0'
+          and b.status = '0'
+        <if test="_parameter != null">
+          and d.customer_org_id = #{customerOrgId}
+        </if>
+        order by c.customer_name, d.device_name, d.device_id
+    </select>
+
+    <select id="selectDeviceById" parameterType="Long"
+            resultMap="OcDeviceResult">
+        <include refid="selectDeviceVo"/>
+        where d.device_id = #{deviceId}
+          and d.del_flag = '0'
+    </select>
+
+    <select id="selectDeviceBySerialNumber" parameterType="String"
+            resultMap="OcDeviceResult">
+        <include refid="selectDeviceVo"/>
+        where d.serial_number = #{serialNumber}
+        limit 1
+    </select>
+
+    <select id="countDeviceByCustomerOrgId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_device
+        where customer_org_id = #{customerOrgId}
+          and del_flag = '0'
+    </select>
+
+    <select id="countDeviceByModelId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_device
+        where model_id = #{modelId}
+          and del_flag = '0'
+    </select>
+
+    <insert id="insertDevice" parameterType="OcDevice"
+            useGeneratedKeys="true" keyProperty="deviceId">
+        insert into oc_device
+        (
+            customer_org_id, model_id, device_name, serial_number,
+            install_location, purchase_date, install_date, warranty_end_date,
+            status, del_flag, create_by, create_time, remark
+        )
+        values
+        (
+            #{customerOrgId}, #{modelId}, #{deviceName}, #{serialNumber},
+            #{installLocation}, #{purchaseDate}, #{installDate},
+            #{warrantyEndDate}, #{status}, '0', #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateDevice" parameterType="OcDevice">
+        update oc_device
+        set customer_org_id = #{customerOrgId},
+            model_id = #{modelId},
+            device_name = #{deviceName},
+            serial_number = #{serialNumber},
+            install_location = #{installLocation},
+            purchase_date = #{purchaseDate},
+            install_date = #{installDate},
+            warranty_end_date = #{warrantyEndDate},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        where device_id = #{deviceId}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteDeviceByIds">
+        update oc_device
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where device_id in
+        <foreach collection="deviceIds" item="deviceId"
+                 open="(" separator="," close=")">
+            #{deviceId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

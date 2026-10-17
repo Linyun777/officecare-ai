@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcProductModelMapper">
+
+    <resultMap type="OcProductModel" id="OcProductModelResult">
+        <id property="modelId" column="model_id" />
+        <result property="brandId" column="brand_id" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelCode" column="model_code" />
+        <result property="modelName" column="model_name" />
+        <result property="seriesName" column="series_name" />
+        <result property="description" column="description" />
+        <result property="sortOrder" column="sort_order" />
+        <result property="status" column="status" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectProductModelVo">
+        select m.model_id, m.brand_id, b.brand_name, m.model_code, m.model_name,
+               m.series_name, m.description, m.sort_order, m.status, m.del_flag,
+               m.create_by, m.create_time, m.update_by, m.update_time, m.remark
+        from oc_product_model m
+        left join oc_brand b on b.brand_id = m.brand_id
+    </sql>
+
+    <select id="selectProductModelList" parameterType="OcProductModel" resultMap="OcProductModelResult">
+        <include refid="selectProductModelVo"/>
+        <where>
+            m.del_flag = '0'
+            <if test="brandId != null">
+                and m.brand_id = #{brandId}
+            </if>
+            <if test="modelCode != null and modelCode != ''">
+                and m.model_code like concat('%', #{modelCode}, '%')
+            </if>
+            <if test="modelName != null and modelName != ''">
+                and m.model_name like concat('%', #{modelName}, '%')
+            </if>
+            <if test="seriesName != null and seriesName != ''">
+                and m.series_name like concat('%', #{seriesName}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and m.status = #{status}
+            </if>
+        </where>
+        order by b.sort_order, m.sort_order, m.model_id
+    </select>
+
+    <select id="selectProductModelOptions" parameterType="Long" resultMap="OcProductModelResult">
+        <include refid="selectProductModelVo"/>
+        where m.del_flag = '0'
+          and m.status = '0'
+          and b.del_flag = '0'
+          and b.status = '0'
+        <if test="_parameter != null">
+          and m.brand_id = #{brandId}
+        </if>
+        order by b.sort_order, m.sort_order, m.model_id
+    </select>
+
+    <select id="selectProductModelById" parameterType="Long" resultMap="OcProductModelResult">
+        <include refid="selectProductModelVo"/>
+        where m.model_id = #{modelId}
+          and m.del_flag = '0'
+    </select>
+
+    <select id="selectProductModelByCode" resultMap="OcProductModelResult">
+        <include refid="selectProductModelVo"/>
+        where m.brand_id = #{brandId}
+          and m.model_code = #{modelCode}
+        limit 1
+    </select>
+
+    <select id="selectProductModelCount" resultType="long">
+        select count(1)
+        from oc_product_model
+        where del_flag = '0'
+    </select>
+
+    <select id="countProductModelByBrandId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_product_model
+        where brand_id = #{brandId}
+          and del_flag = '0'
+    </select>
+
+    <insert id="insertProductModel" parameterType="OcProductModel" useGeneratedKeys="true" keyProperty="modelId">
+        insert into oc_product_model
+        (
+            brand_id, model_code, model_name, series_name, description, sort_order,
+            status, del_flag, create_by, create_time, remark
+        )
+        values
+        (
+            #{brandId}, #{modelCode}, #{modelName}, #{seriesName}, #{description}, #{sortOrder},
+            #{status}, '0', #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateProductModel" parameterType="OcProductModel">
+        update oc_product_model
+        <set>
+            brand_id = #{brandId},
+            model_code = #{modelCode},
+            model_name = #{modelName},
+            series_name = #{seriesName},
+            description = #{description},
+            sort_order = #{sortOrder},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        </set>
+        where model_id = #{modelId}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteProductModelByIds">
+        update oc_product_model
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where model_id in
+        <foreach collection="modelIds" item="modelId" open="(" separator="," close=")">
+            #{modelId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcAiConversationMapper">
+
+    <resultMap type="com.ruoyi.officecare.domain.OcAiConversation" id="OcAiConversationResult">
+        <id property="conversationId" column="conversation_id" />
+        <result property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="knowledgeBaseName" column="knowledge_base_name" />
+        <result property="brandId" column="brand_id" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelId" column="model_id" />
+        <result property="modelName" column="model_name" />
+        <result property="userId" column="user_id" />
+        <result property="title" column="title" />
+        <result property="status" column="status" />
+        <result property="lastMessageTime" column="last_message_time" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <sql id="selectConversationVo">
+        select c.conversation_id, c.knowledge_base_id, k.knowledge_base_name,
+               k.brand_id, b.brand_name, k.model_id, m.model_name,
+               c.user_id, c.title, c.status, c.last_message_time, c.del_flag,
+               c.create_by, c.create_time, c.update_by, c.update_time
+        from oc_ai_conversation c
+        inner join oc_knowledge_base k on k.knowledge_base_id = c.knowledge_base_id
+        left join oc_brand b on b.brand_id = k.brand_id
+        left join oc_product_model m on m.model_id = k.model_id
+    </sql>
+
+    <select id="selectConversationListByUserId" parameterType="Long"
+            resultMap="OcAiConversationResult">
+        <include refid="selectConversationVo"/>
+        where c.user_id = #{userId}
+          and c.status = '0'
+          and c.del_flag = '0'
+        order by coalesce(c.last_message_time, c.create_time) desc,
+                 c.conversation_id desc
+        limit 100
+    </select>
+
+    <select id="selectConversationByIdAndUserId" resultMap="OcAiConversationResult">
+        <include refid="selectConversationVo"/>
+        where c.conversation_id = #{conversationId}
+          and c.user_id = #{userId}
+          and c.status = '0'
+          and c.del_flag = '0'
+    </select>
+
+    <insert id="insertConversation"
+            parameterType="com.ruoyi.officecare.domain.OcAiConversation"
+            useGeneratedKeys="true" keyProperty="conversationId">
+        insert into oc_ai_conversation
+        (
+            knowledge_base_id, user_id, title, status, last_message_time,
+            del_flag, create_by, create_time
+        )
+        values
+        (
+            #{knowledgeBaseId}, #{userId}, #{title}, '0', null,
+            '0', #{createBy}, sysdate()
+        )
+    </insert>
+
+    <update id="updateConversationTitle">
+        update oc_ai_conversation
+        set title = #{title},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and user_id = #{userId}
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+    <update id="touchConversation">
+        update oc_ai_conversation
+        set title = case
+                when title = '新会话' and #{generatedTitle} is not null
+                    then #{generatedTitle}
+                else title
+            end,
+            last_message_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and user_id = #{userId}
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteConversation">
+        update oc_ai_conversation
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and user_id = #{userId}
+          and del_flag = '0'
+    </update>
+
+</mapper>

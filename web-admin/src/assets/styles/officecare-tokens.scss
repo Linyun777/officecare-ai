@@ -1,0 +1,547 @@
+// =============================================================================
+// OfficeCare 设计令牌与全局交互规范
+// 视觉方向：中性冷灰 + 靛青强调色
+// 本文件只负责「令牌」和「全局交互规则」，不写具体页面样式。
+// 由 index.scss 在最后 @use，确保覆盖 element-plus 与 variables.module.scss。
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. 原始令牌
+// -----------------------------------------------------------------------------
+:root {
+  // 中性色阶：偏冷的灰，带一点点蓝调以呼应靛青强调色
+  --oc-neutral-25: #fcfcfd;
+  --oc-neutral-50: #f7f8fa;
+  --oc-neutral-100: #eff1f5;
+  --oc-neutral-200: #e3e6ed;
+  --oc-neutral-300: #cfd4df;
+  --oc-neutral-400: #a5adbc;
+  --oc-neutral-500: #78818f;
+  --oc-neutral-600: #5a6272;
+  --oc-neutral-700: #424959;
+  --oc-neutral-800: #2b313d;
+  --oc-neutral-900: #1b1f27;
+  --oc-neutral-950: #12151b;
+
+  // 靛青强调色阶
+  --oc-accent-50: #f0f3ff;
+  --oc-accent-100: #e1e7ff;
+  --oc-accent-200: #c9d3fb;
+  --oc-accent-300: #abbdf9;
+  --oc-accent-400: #8da4ef;
+  --oc-accent-500: #5b7be8;
+  --oc-accent-600: #3e63dd; // 主色
+  --oc-accent-700: #3358d4;
+  --oc-accent-800: #2a4ab8;
+  --oc-accent-900: #22398f;
+
+  // 强调色的柔和底/前景：用于图标底、选中态、徽标
+  --oc-accent-soft: var(--oc-accent-50);
+  --oc-accent-soft-fg: var(--oc-accent-600);
+
+  // 语义色
+  --oc-success: #2f9e64;
+  --oc-warning: #d98e0b;
+  --oc-danger: #e5484d;
+  --oc-info: #6b7280;
+
+  // 缓动曲线：内置 ease 太弱，统一使用带"力度"的自定义曲线
+  --oc-ease-out: cubic-bezier(0.23, 1, 0.32, 1); // 进入/反馈，起步快
+  --oc-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); // 屏幕内位移/形态变化
+  --oc-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); // 抽屉/面板
+  --oc-ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1); // 轻微回弹，仅装饰性场景
+
+  // 时长：UI 动效一律 < 300ms
+  --oc-dur-press: 120ms;
+  --oc-dur-fast: 160ms;
+  --oc-dur-base: 200ms;
+  --oc-dur-slow: 260ms;
+
+  // 圆角
+  --oc-radius-xs: 4px;
+  --oc-radius-sm: 6px;
+  --oc-radius-md: 8px;
+  --oc-radius-lg: 12px;
+  --oc-radius-xl: 16px;
+
+  // 阴影：分层且克制，靠边框与层次而不是重阴影做区分
+  --oc-shadow-xs: 0 1px 2px rgba(27, 31, 39, 0.04);
+  --oc-shadow-sm: 0 1px 2px rgba(27, 31, 39, 0.05), 0 1px 3px rgba(27, 31, 39, 0.04);
+  --oc-shadow-md: 0 2px 4px rgba(27, 31, 39, 0.04), 0 4px 12px rgba(27, 31, 39, 0.06);
+  --oc-shadow-lg: 0 4px 8px rgba(27, 31, 39, 0.05), 0 12px 32px rgba(27, 31, 39, 0.1);
+  --oc-shadow-accent: 0 2px 8px rgba(62, 99, 221, 0.24);
+
+  // 焦点环
+  --oc-focus-ring: 0 0 0 3px rgba(62, 99, 221, 0.18);
+
+  // 版式
+  --oc-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --oc-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  // 页面留白
+  --oc-page-padding: 20px;
+  --oc-card-padding: 18px;
+
+  // 侧边栏尺寸（与 variables.module.scss 保持一致）
+  --oc-sidebar-width: 200px;
+}
+
+// -----------------------------------------------------------------------------
+// 2. 覆盖 Element Plus 令牌（亮色）
+// -----------------------------------------------------------------------------
+:root {
+  // 主色及其 light/dark 派生值（Element Plus 用这些生成悬浮/朴素/描边态）
+  --el-color-primary: var(--oc-accent-600);
+  --el-color-primary-light-3: #7892e7;
+  --el-color-primary-light-5: #9fb1ee;
+  --el-color-primary-light-7: #c5d0f5;
+  --el-color-primary-light-8: #d8e0f8;
+  --el-color-primary-light-9: #eceffc;
+  --el-color-primary-dark-2: #324fb1;
+
+  // 语义色：降低饱和度，避免与靛青打架
+  --el-color-success: var(--oc-success);
+  --el-color-success-light-3: #6dbb93;
+  --el-color-success-light-5: #97cfb2;
+  --el-color-success-light-7: #c1e2d1;
+  --el-color-success-light-8: #d5ece0;
+  --el-color-success-light-9: #eaf5f0;
+  --el-color-success-dark-2: #267e50;
+
+  --el-color-warning: var(--oc-warning);
+  --el-color-warning-light-3: #e4b054;
+  --el-color-warning-light-5: #ecc785;
+  --el-color-warning-light-7: #f4ddb6;
+  --el-color-warning-light-8: #f7e8ce;
+  --el-color-warning-light-9: #fbf4e7;
+  --el-color-warning-dark-2: #ae7209;
+
+  --el-color-danger: var(--oc-danger);
+  --el-color-danger-light-3: #ed7f82;
+  --el-color-danger-light-5: #f2a4a6;
+  --el-color-danger-light-7: #f7c8ca;
+  --el-color-danger-light-8: #fadadb;
+  --el-color-danger-light-9: #fcedee;
+  --el-color-danger-dark-2: #b73a3e;
+
+  --el-color-error: var(--oc-danger);
+  --el-color-error-light-3: #ed7f82;
+  --el-color-error-light-5: #f2a4a6;
+  --el-color-error-light-7: #f7c8ca;
+  --el-color-error-light-8: #fadadb;
+  --el-color-error-light-9: #fcedee;
+  --el-color-error-dark-2: #b73a3e;
+
+  --el-color-info: var(--oc-info);
+  --el-color-info-light-3: #979ca6;
+  --el-color-info-light-5: #b5b9c0;
+  --el-color-info-light-7: #d3d5d9;
+  --el-color-info-light-8: #e1e3e6;
+  --el-color-info-light-9: #f0f1f2;
+  --el-color-info-dark-2: #565b66;
+
+  // 文字层级：用中性色阶拉开层次，而不是靠加粗
+  --el-text-color-primary: var(--oc-neutral-900);
+  --el-text-color-regular: var(--oc-neutral-700);
+  --el-text-color-secondary: var(--oc-neutral-500);
+  --el-text-color-placeholder: var(--oc-neutral-400);
+  --el-text-color-disabled: var(--oc-neutral-400);
+
+  // 边框
+  --el-border-color: var(--oc-neutral-200);
+  --el-border-color-light: var(--oc-neutral-200);
+  --el-border-color-lighter: var(--oc-neutral-100);
+  --el-border-color-extra-light: var(--oc-neutral-100);
+  --el-border-color-dark: var(--oc-neutral-300);
+  --el-border-color-darker: var(--oc-neutral-300);
+
+  // 填充与背景
+  --el-fill-color: var(--oc-neutral-100);
+  --el-fill-color-light: var(--oc-neutral-50);
+  --el-fill-color-lighter: var(--oc-neutral-25);
+  --el-fill-color-extra-light: var(--oc-neutral-25);
+  --el-fill-color-dark: var(--oc-neutral-200);
+  --el-fill-color-darker: var(--oc-neutral-300);
+  --el-fill-color-blank: #ffffff;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: var(--oc-neutral-50);
+  --el-bg-color-overlay: #ffffff;
+  --el-mask-color: rgba(27, 31, 39, 0.4);
+
+  // 圆角：默认 4px 偏硬，收敛到 6px
+  --el-border-radius-base: var(--oc-radius-sm);
+  --el-border-radius-small: var(--oc-radius-xs);
+  --el-border-radius-round: 999px;
+
+  // 阴影
+  --el-box-shadow-lighter: var(--oc-shadow-xs);
+  --el-box-shadow-light: var(--oc-shadow-sm);
+  --el-box-shadow: var(--oc-shadow-md);
+  --el-box-shadow-dark: var(--oc-shadow-lg);
+
+  // 过渡：统一走自定义缓动，时长收敛
+  --el-transition-duration: var(--oc-dur-base);
+  --el-transition-duration-fast: var(--oc-dur-fast);
+  --el-transition-function-ease-in-out-bezier: var(--oc-ease-in-out);
+  --el-transition-function-fast-bezier: var(--oc-ease-out);
+
+  // 组件尺寸微调，提升呼吸感
+  --el-component-size: 32px;
+  --el-component-size-large: 38px;
+  --el-component-size-small: 26px;
+}
+
+// -----------------------------------------------------------------------------
+// 3. 覆盖 Element Plus 令牌（暗色）
+//    只覆盖强调色与中性色：语义色交给 Element Plus 自带暗色方案，避免绿色/红色
+//    在两种模式下偏差过大。
+// -----------------------------------------------------------------------------
+html.dark {
+  --oc-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --oc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --oc-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.45);
+  --oc-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.55);
+  --oc-shadow-accent: 0 2px 10px rgba(62, 99, 221, 0.4);
+  --oc-focus-ring: 0 0 0 3px rgba(110, 139, 240, 0.26);
+
+  // 暗色下提亮强调色，保证对比度与可读性
+  --el-color-primary: #6e8bf0;
+  --el-color-primary-light-3: #2f3856;
+  --el-color-primary-light-5: #415082;
+  --el-color-primary-light-7: #5367ae;
+  --el-color-primary-light-8: #5c73c4;
+  --el-color-primary-light-9: #657fda;
+  --el-color-primary-dark-2: #8ba2f3;
+
+  --oc-accent-soft: rgba(110, 139, 240, 0.16);
+  --oc-accent-soft-fg: #8ba2f3;
+
+  --el-text-color-primary: #edeff3;
+  --el-text-color-regular: #b6bcc8;
+  --el-text-color-secondary: #868d9b;
+  --el-text-color-placeholder: #6a7280;
+  --el-text-color-disabled: #6a7280;
+
+  --el-border-color: #2a2e37;
+  --el-border-color-light: #2a2e37;
+  --el-border-color-lighter: #22252c;
+  --el-border-color-extra-light: #1e2128;
+  --el-border-color-dark: #333845;
+  --el-border-color-darker: #3b4150;
+
+  --el-fill-color: #22252c;
+  --el-fill-color-light: #1c1f26;
+  --el-fill-color-lighter: #191c22;
+  --el-fill-color-extra-light: #171a20;
+  --el-fill-color-dark: #2a2e37;
+  --el-fill-color-darker: #333845;
+  --el-fill-color-blank: #16181d;
+  --el-bg-color: #16181d;
+  --el-bg-color-page: #0f1115;
+  --el-bg-color-overlay: #1c1f26;
+  --el-mask-color: rgba(0, 0, 0, 0.65);
+}
+
+// -----------------------------------------------------------------------------
+// 4. 全局交互规范
+// -----------------------------------------------------------------------------
+
+// 4.0 表单控件默认不继承字体，统一继承，避免中文回退到 UA 字体
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+// 4.1 按钮按下反馈：让界面"听到"点击，这是最廉价的手感提升
+.el-button {
+  transition: transform var(--oc-dur-press) var(--oc-ease-out),
+    background-color var(--oc-dur-fast) var(--oc-ease-out),
+    border-color var(--oc-dur-fast) var(--oc-ease-out),
+    color var(--oc-dur-fast) var(--oc-ease-out),
+    box-shadow var(--oc-dur-fast) var(--oc-ease-out);
+
+  &:active:not(.is-disabled):not(.is-loading) {
+    transform: scale(0.97);
+  }
+}
+
+// 表格里的文字按钮行高小，缩放会显得抖，改用背景色反馈即可
+.el-table .el-button.is-link:active,
+.el-table .el-button.is-text:active {
+  transform: none;
+}
+
+// 4.2 键盘焦点：只在键盘导航时出现，且避开 Element 自带焦点态的输入类组件
+:focus-visible {
+  outline: 2px solid var(--oc-accent-600);
+  outline-offset: 2px;
+}
+
+html.dark :focus-visible {
+  outline-color: #8ba2f3;
+}
+
+.el-input__inner:focus-visible,
+.el-textarea__inner:focus-visible,
+.el-select__input:focus-visible,
+.el-range-input:focus-visible,
+.el-checkbox__original:focus-visible,
+.el-radio__original:focus-visible,
+.el-switch__input:focus-visible {
+  outline: none;
+}
+
+// 4.3 数字对齐：表格与统计数字用等宽数字，列才不会跳动
+.el-table,
+.el-descriptions,
+.el-pagination,
+.oc-tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+// 4.4 可选中的文本色
+::selection {
+  background: rgba(62, 99, 221, 0.16);
+}
+
+html.dark ::selection {
+  background: rgba(110, 139, 240, 0.3);
+}
+
+// 4.5 滚动条：细、无轨道底色，hover 才明显
+.el-scrollbar__wrap,
+.el-table__body-wrapper,
+.el-select-dropdown__wrap,
+.el-textarea__inner {
+  scrollbar-width: thin;
+  scrollbar-color: var(--oc-neutral-300) transparent;
+}
+
+html.dark .el-scrollbar__wrap,
+html.dark .el-table__body-wrapper,
+html.dark .el-select-dropdown__wrap,
+html.dark .el-textarea__inner {
+  scrollbar-color: #3b4150 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--oc-neutral-300);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--oc-neutral-400);
+  background-clip: content-box;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #3b4150;
+  background-clip: content-box;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4b5263;
+  background-clip: content-box;
+}
+
+// 4.6 卡片：统一圆角与边框，阴影交给 hover 态
+.el-card {
+  --el-card-border-radius: var(--oc-radius-lg);
+  --el-card-padding: var(--oc-card-padding);
+  border-color: var(--el-border-color-lighter);
+  transition: box-shadow var(--oc-dur-base) var(--oc-ease-out),
+    border-color var(--oc-dur-base) var(--oc-ease-out);
+}
+
+.el-card__header {
+  padding: 14px var(--oc-card-padding);
+  border-bottom-color: var(--el-border-color-lighter);
+}
+
+// 4.7 表格：表头更轻、行高更舒展、hover 更明确
+.el-table {
+  --el-table-header-bg-color: var(--oc-neutral-50);
+  --el-table-header-text-color: var(--oc-neutral-600);
+  --el-table-row-hover-bg-color: var(--oc-accent-50);
+  --el-table-border-color: var(--el-border-color-lighter);
+
+  th.el-table__cell {
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  .el-table__cell {
+    padding: 9px 0;
+  }
+}
+
+html.dark .el-table {
+  --el-table-header-bg-color: #1c1f26;
+  --el-table-header-text-color: #868d9b;
+  --el-table-row-hover-bg-color: #22252c;
+}
+
+// 4.8 对话框与抽屉：进出用不同速度，退出更快
+.el-dialog {
+  border-radius: var(--oc-radius-lg);
+  box-shadow: var(--oc-shadow-lg);
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  margin-right: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.el-dialog__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.el-dialog__body {
+  padding: 20px;
+}
+
+.el-dialog__footer {
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+// 4.9 表单：标签用中等字重，靠颜色和间距做层次
+.el-form-item__label {
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+}
+
+// 4.10 输入框聚焦：用柔和焦点环代替默认描边
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset, var(--oc-focus-ring) !important;
+}
+
+// 4.11 卡片 hover 抬起：只在精确指针设备上生效，触屏不会误触发
+@media (hover: hover) and (pointer: fine) {
+  .oc-lift {
+    transition: transform var(--oc-dur-base) var(--oc-ease-out),
+      box-shadow var(--oc-dur-base) var(--oc-ease-out),
+      border-color var(--oc-dur-base) var(--oc-ease-out);
+  }
+
+  .oc-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--oc-shadow-md);
+    border-color: var(--oc-accent-200);
+  }
+
+  html.dark .oc-lift:hover {
+    border-color: #415082;
+  }
+}
+
+// 4.12 任何可点击元素都给出按下反馈
+.oc-pressable {
+  transition: transform var(--oc-dur-press) var(--oc-ease-out);
+}
+
+.oc-pressable:active {
+  transform: scale(0.97);
+}
+
+// 4.13 列表入场错峰与单元素入场：装饰性，绝不阻塞交互
+@keyframes oc-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+// 多个元素同时出现时错峰，比"一起弹出"自然得多
+.oc-stagger > * {
+  animation: oc-fade-up var(--oc-dur-slow) var(--oc-ease-out) both;
+}
+
+.oc-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.oc-stagger > *:nth-child(2) {
+  animation-delay: 45ms;
+}
+.oc-stagger > *:nth-child(3) {
+  animation-delay: 90ms;
+}
+.oc-stagger > *:nth-child(4) {
+  animation-delay: 135ms;
+}
+.oc-stagger > *:nth-child(5) {
+  animation-delay: 180ms;
+}
+.oc-stagger > *:nth-child(6) {
+  animation-delay: 225ms;
+}
+.oc-stagger > *:nth-child(n + 7) {
+  animation-delay: 260ms;
+}
+
+// 单个内容"由无到有"地出现（例如等待几十秒后的分析结果），
+// 让它像"到达"，而不是"突然弹出"
+.oc-enter {
+  animation: oc-fade-up var(--oc-dur-slow) var(--oc-ease-out) both;
+}
+
+// -----------------------------------------------------------------------------
+// 5. 无障碍：减少动态效果
+//    保留颜色与透明度过渡（它们帮助理解状态变化），移除位移与缩放。
+// -----------------------------------------------------------------------------
+@media (prefers-reduced-motion: reduce) {
+  .el-button:active,
+  .oc-pressable:active {
+    transform: none !important;
+  }
+
+  .oc-lift:hover {
+    transform: none !important;
+  }
+
+  .fade-transform-enter-from,
+  .fade-transform-leave-to,
+  .breadcrumb-enter-from,
+  .breadcrumb-leave-active {
+    transform: none !important;
+  }
+
+  .oc-stagger > *,
+  .oc-enter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    animation-delay: 0ms !important;
+  }
+}

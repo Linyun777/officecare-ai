@@ -1,0 +1,197 @@
+# 项目相关配置
+ruoyi:
+  # 名称
+  name: OfficeCare AI
+  # 版本
+  version: 0.1.0
+  # 版权年份
+  copyrightYear: 2026
+  # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
+  profile: ${RUOYI_PROFILE:D:/ruoyi/uploadPath}
+  # 获取ip地址开关
+  addressEnabled: false
+  # 验证码类型 math 数字计算 char 字符验证
+  captchaType: math
+
+# OfficeCare业务配置
+officecare:
+  storage:
+    # 第一版使用本地文件系统；后续可扩展为oss实现
+    type: ${OFFICECARE_STORAGE_TYPE:local}
+    # 原始文档只保存到外部目录，Git和数据库均不保存文件内容
+    root: ${OFFICECARE_STORAGE_ROOT:D:/officecare-data/documents}
+  cache:
+    # Java业务基础数据缓存；业务缓存读写异常时自动回源MySQL
+    enabled: ${OFFICECARE_JAVA_CACHE_ENABLED:true}
+    # 品牌、型号、知识库下拉选项和详情缓存时间，最长支持24小时
+    reference-ttl: ${OFFICECARE_JAVA_CACHE_REFERENCE_TTL:30m}
+  messaging:
+    rabbit:
+      # 本地默认关闭，继续使用进程内线程池；生产部署显式开启RabbitMQ可靠任务队列
+      enabled: ${OFFICECARE_RABBITMQ_ENABLED:false}
+      exchange: ${OFFICECARE_RABBITMQ_EXCHANGE:officecare.document.exchange}
+      dead-exchange: ${OFFICECARE_RABBITMQ_DEAD_EXCHANGE:officecare.document.dead.exchange}
+      parse-queue: ${OFFICECARE_RABBITMQ_PARSE_QUEUE:officecare.document.parse.queue}
+      index-queue: ${OFFICECARE_RABBITMQ_INDEX_QUEUE:officecare.document.index.queue}
+      delete-index-queue: ${OFFICECARE_RABBITMQ_DELETE_INDEX_QUEUE:officecare.document.delete-index.queue}
+      dead-queue: ${OFFICECARE_RABBITMQ_DEAD_QUEUE:officecare.document.dead.queue}
+      queue-type: ${OFFICECARE_RABBITMQ_QUEUE_TYPE:quorum}
+      consumer-concurrency: ${OFFICECARE_RABBITMQ_CONSUMER_CONCURRENCY:1}
+      prefetch-count: ${OFFICECARE_RABBITMQ_PREFETCH_COUNT:1}
+      outbox-batch-size: ${OFFICECARE_RABBITMQ_OUTBOX_BATCH_SIZE:20}
+      outbox-poll-interval-ms: ${OFFICECARE_RABBITMQ_OUTBOX_POLL_INTERVAL_MS:1000}
+      publisher-confirm-timeout-ms: ${OFFICECARE_RABBITMQ_CONFIRM_TIMEOUT_MS:5000}
+      max-publish-attempts: ${OFFICECARE_RABBITMQ_MAX_PUBLISH_ATTEMPTS:10}
+      retry-initial-delay-seconds: ${OFFICECARE_RABBITMQ_RETRY_INITIAL_DELAY_SECONDS:30}
+      retry-max-delay-seconds: ${OFFICECARE_RABBITMQ_RETRY_MAX_DELAY_SECONDS:600}
+      publishing-stale-seconds: ${OFFICECARE_RABBITMQ_PUBLISHING_STALE_SECONDS:300}
+
+# 开发环境配置
+server:
+  # 服务器的HTTP端口，默认为8080
+  port: 8080
+  servlet:
+    # 应用的访问路径
+    context-path: /
+  tomcat:
+    # tomcat的URI编码
+    uri-encoding: UTF-8
+    # 连接数满后的排队数，默认为100
+    accept-count: 1000
+    threads:
+      # tomcat最大线程数，默认为200
+      max: 800
+      # Tomcat启动初始化的线程数，默认值10
+      min-spare: 100
+
+# 日志配置
+logging:
+  level:
+    com.ruoyi: debug
+    org.springframework: warn
+
+# 用户配置
+user:
+  password:
+    # 密码最大错误次数
+    maxRetryCount: 5
+    # 密码锁定时间（默认10分钟）
+    lockTime: 10
+
+# Spring配置
+spring:
+  application:
+    name: officecare-server
+  # 资源信息
+  messages:
+    # 国际化资源文件路径
+    basename: i18n/messages
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:druid,dev}
+  # 文件上传
+  servlet:
+    multipart:
+      # 单个文件大小
+      max-file-size: 30MB
+      # 设置总上传的文件大小
+      max-request-size: 35MB
+  # 服务模块
+  devtools:
+    restart:
+      # 热部署开关
+      enabled: ${SPRING_DEVTOOLS_RESTART_ENABLED:true}
+  data:
+    # redis 配置
+    redis:
+      # 地址
+      host: ${officecare.redis.host}
+      # 端口，默认为6379
+      port: ${officecare.redis.port}
+      # 数据库索引
+      database: ${officecare.redis.database}
+      # 密码
+      password: ${officecare.redis.password}
+      # 连接超时时间
+      timeout: 10s
+      lettuce:
+        pool:
+          # 连接池中的最小空闲连接
+          min-idle: 0
+          # 连接池中的最大空闲连接
+          max-idle: 8
+          # 连接池的最大数据库连接数
+          max-active: 8
+          # #连接池最大阻塞等待时间（使用负值表示没有限制）
+          max-wait: -1ms
+  rabbitmq:
+    host: ${OFFICECARE_RABBITMQ_HOST:127.0.0.1}
+    port: ${OFFICECARE_RABBITMQ_PORT:5672}
+    username: ${OFFICECARE_RABBITMQ_USERNAME:guest}
+    password: ${OFFICECARE_RABBITMQ_PASSWORD:guest}
+    virtual-host: ${OFFICECARE_RABBITMQ_VHOST:/}
+    connection-timeout: ${OFFICECARE_RABBITMQ_CONNECTION_TIMEOUT:5s}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+        concurrency: ${OFFICECARE_RABBITMQ_CONSUMER_CONCURRENCY:1}
+        max-concurrency: ${OFFICECARE_RABBITMQ_CONSUMER_CONCURRENCY:1}
+        prefetch: ${OFFICECARE_RABBITMQ_PREFETCH_COUNT:1}
+
+# token配置
+token:
+  # 令牌自定义标识
+  header: Authorization
+  # 令牌密钥
+  secret: ${officecare.security.token-secret}
+  # 令牌有效期（默认30分钟）
+  expireTime: 30
+
+# MyBatis配置
+mybatis:
+  # 搜索指定包别名
+  typeAliasesPackage: com.ruoyi.**.domain
+  # 配置mapper的扫描，找到所有的mapper.xml映射文件
+  mapperLocations: classpath*:mapper/**/*Mapper.xml
+  # 加载全局的配置文件
+  configLocation: classpath:mybatis/mybatis-config.xml
+
+# PageHelper分页插件
+pagehelper:
+  helperDialect: mysql
+  supportMethodsArguments: true
+  params: count=countSql
+
+# Springdoc配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  group-configs:
+    - group: 'default'
+      display-name: 'OfficeCare API'
+      paths-to-match: '/**'
+      packages-to-scan: com.ruoyi.web.controller.officecare
+
+# 防盗链配置
+referer:
+  # 防盗链开关
+  enabled: false
+  # 允许的域名列表
+  allowed-domains: ${OFFICECARE_REFERER_ALLOWED_DOMAINS:localhost,127.0.0.1}
+
+# 防止XSS攻击
+xss:
+  # 过滤开关
+  enabled: true
+  # 排除链接（多个用逗号分隔）
+  excludes: /system/notice
+  # 匹配链接
+  urlPatterns: /system/*,/monitor/*,/tool/*

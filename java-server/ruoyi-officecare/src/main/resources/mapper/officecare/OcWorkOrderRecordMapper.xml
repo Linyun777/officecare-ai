@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcWorkOrderRecordMapper">
+
+    <resultMap type="OcWorkOrderRecord" id="OcWorkOrderRecordResult">
+        <id property="recordId" column="record_id" />
+        <result property="workOrderId" column="work_order_id" />
+        <result property="actionType" column="action_type" />
+        <result property="fromStatus" column="from_status" />
+        <result property="toStatus" column="to_status" />
+        <result property="content" column="content" />
+        <result property="operatorUserId" column="operator_user_id" />
+        <result property="operatorName" column="operator_name" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <select id="selectRecordListByWorkOrderId" parameterType="Long"
+            resultMap="OcWorkOrderRecordResult">
+        select record_id, work_order_id, action_type, from_status,
+               to_status, content, operator_user_id, operator_name, create_time
+        from oc_work_order_record
+        where work_order_id = #{workOrderId}
+        order by create_time, record_id
+    </select>
+
+    <insert id="insertWorkOrderRecord" parameterType="OcWorkOrderRecord"
+            useGeneratedKeys="true" keyProperty="recordId">
+        insert into oc_work_order_record
+        (
+            work_order_id, action_type, from_status, to_status,
+            content, operator_user_id, operator_name, create_time
+        )
+        values
+        (
+            #{workOrderId}, #{actionType}, #{fromStatus}, #{toStatus},
+            #{content}, #{operatorUserId}, #{operatorName}, sysdate()
+        )
+    </insert>
+
+</mapper>

@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcDocumentVersionMapper">
+
+    <resultMap type="OcDocumentVersion" id="OcDocumentVersionResult">
+        <id property="documentVersionId" column="document_version_id" />
+        <result property="documentId" column="document_id" />
+        <result property="versionNo" column="version_no" />
+        <result property="storageType" column="storage_type" />
+        <result property="bucketName" column="bucket_name" />
+        <result property="objectKey" column="object_key" />
+        <result property="originalFileName" column="original_file_name" />
+        <result property="fileExtension" column="file_extension" />
+        <result property="contentType" column="content_type" />
+        <result property="fileSize" column="file_size" />
+        <result property="fileHash" column="file_hash" />
+        <result property="parsedObjectKey" column="parsed_object_key" />
+        <result property="pageCount" column="page_count" />
+        <result property="processStatus" column="process_status" />
+        <result property="processMessage" column="process_message" />
+        <result property="indexStatus" column="index_status" />
+        <result property="indexMessage" column="index_message" />
+        <result property="indexContentHash" column="index_content_hash" />
+        <result property="indexedChunkCount" column="indexed_chunk_count" />
+        <result property="embeddingModel" column="embedding_model" />
+        <result property="embeddingDimension" column="embedding_dimension" />
+        <result property="milvusCollection" column="milvus_collection" />
+        <result property="indexedTime" column="indexed_time" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <sql id="selectDocumentVersionVo">
+        select document_version_id, document_id, version_no, storage_type, bucket_name,
+               object_key, original_file_name, file_extension, content_type, file_size,
+               file_hash, parsed_object_key, page_count, process_status, process_message,
+               index_status, index_message, index_content_hash, indexed_chunk_count,
+               embedding_model, embedding_dimension, milvus_collection, indexed_time,
+               del_flag, create_by, create_time
+        from oc_document_version
+    </sql>
+
+    <select id="selectVersionListByDocumentId" parameterType="Long"
+            resultMap="OcDocumentVersionResult">
+        <include refid="selectDocumentVersionVo"/>
+        where document_id = #{documentId}
+          and del_flag = '0'
+        order by version_no desc
+    </select>
+
+    <select id="selectVersionById" parameterType="Long" resultMap="OcDocumentVersionResult">
+        <include refid="selectDocumentVersionVo"/>
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </select>
+
+    <select id="selectKnowledgeBaseIdByVersionId" parameterType="Long"
+            resultType="long">
+        select d.knowledge_base_id
+        from oc_document_version v
+        inner join oc_document d on d.document_id = v.document_id
+        where v.document_version_id = #{documentVersionId}
+        limit 1
+    </select>
+
+    <select id="selectVersionByHash" resultMap="OcDocumentVersionResult">
+        <include refid="selectDocumentVersionVo"/>
+        where document_id = #{documentId}
+          and file_hash = #{fileHash}
+          and del_flag = '0'
+        limit 1
+    </select>
+
+    <select id="selectNextVersionNo" parameterType="Long" resultType="int">
+        select coalesce(max(version_no), 0) + 1
+        from oc_document_version
+        where document_id = #{documentId}
+    </select>
+
+    <select id="selectVersionListByDocumentIds" resultMap="OcDocumentVersionResult">
+        <include refid="selectDocumentVersionVo"/>
+        where document_id in
+        <foreach collection="documentIds" item="documentId" open="(" separator="," close=")">
+            #{documentId}
+        </foreach>
+          and del_flag = '0'
+        order by document_id, version_no
+    </select>
+
+    <insert id="insertDocumentVersion" parameterType="OcDocumentVersion"
+            useGeneratedKeys="true" keyProperty="documentVersionId">
+        insert into oc_document_version
+        (
+            document_id, version_no, storage_type, bucket_name, object_key,
+            original_file_name, file_extension, content_type, file_size, file_hash,
+            parsed_object_key, page_count, process_status, process_message, del_flag,
+            create_by, create_time
+        )
+        values
+        (
+            #{documentId}, #{versionNo}, #{storageType}, #{bucketName}, #{objectKey},
+            #{originalFileName}, #{fileExtension}, #{contentType}, #{fileSize}, #{fileHash},
+            #{parsedObjectKey}, #{pageCount}, #{processStatus}, #{processMessage}, '0',
+            #{createBy}, sysdate()
+        )
+    </insert>
+
+    <update id="updateVersionProcessing">
+        update oc_document_version
+        set process_status = '1',
+            process_message = #{processMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateVersionSuccess">
+        update oc_document_version
+        set parsed_object_key = #{parsedObjectKey},
+            page_count = #{pageCount},
+            process_status = '2',
+            process_message = #{processMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateVersionFailed">
+        update oc_document_version
+        set process_status = '3',
+            process_message = #{processMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateVersionPending">
+        update oc_document_version
+        set process_status = '0',
+            process_message = #{processMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateVersionIndexProcessing">
+        update oc_document_version
+        set index_status = '1',
+            index_message = #{indexMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+          and process_status = '2'
+    </update>
+
+    <update id="updateVersionIndexSuccess">
+        update oc_document_version
+        set index_status = '2',
+            index_message = #{indexMessage},
+            index_content_hash = #{indexContentHash},
+            indexed_chunk_count = #{indexedChunkCount},
+            embedding_model = #{embeddingModel},
+            embedding_dimension = #{embeddingDimension},
+            milvus_collection = #{milvusCollection},
+            indexed_time = sysdate()
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+          and process_status = '2'
+    </update>
+
+    <update id="updateVersionIndexFailed">
+        update oc_document_version
+        set index_status = '3',
+            index_message = #{indexMessage}
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateVersionIndexPending">
+        update oc_document_version
+        set index_status = '0',
+            index_message = #{indexMessage},
+            index_content_hash = null,
+            indexed_chunk_count = null,
+            embedding_model = null,
+            embedding_dimension = null,
+            milvus_collection = null,
+            indexed_time = null
+        where document_version_id = #{documentVersionId}
+          and del_flag = '0'
+          and process_status = '2'
+    </update>
+
+    <update id="deleteVersionsByDocumentIds">
+        update oc_document_version
+        set del_flag = '2'
+        where document_id in
+        <foreach collection="documentIds" item="documentId" open="(" separator="," close=")">
+            #{documentId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

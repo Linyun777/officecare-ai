@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcDocumentTaskMapper">
+
+    <resultMap type="OcDocumentTask" id="OcDocumentTaskResult">
+        <id property="taskId" column="task_id" />
+        <result property="documentId" column="document_id" />
+        <result property="documentVersionId" column="document_version_id" />
+        <result property="taskType" column="task_type" />
+        <result property="status" column="status" />
+        <result property="attemptCount" column="attempt_count" />
+        <result property="maxAttempts" column="max_attempts" />
+        <result property="traceId" column="trace_id" />
+        <result property="requestFileHash" column="request_file_hash" />
+        <result property="resultFileHash" column="result_file_hash" />
+        <result property="pageCount" column="page_count" />
+        <result property="blockCount" column="block_count" />
+        <result property="characterCount" column="character_count" />
+        <result property="errorCode" column="error_code" />
+        <result property="errorMessage" column="error_message" />
+        <result property="startedTime" column="started_time" />
+        <result property="finishedTime" column="finished_time" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <sql id="selectDocumentTaskVo">
+        select task_id, document_id, document_version_id, task_type, status,
+               attempt_count, max_attempts, trace_id, request_file_hash,
+               result_file_hash, page_count, block_count, character_count,
+               error_code, error_message, started_time, finished_time,
+               create_by, create_time, update_by, update_time
+        from oc_document_task
+    </sql>
+
+    <select id="selectTaskById" parameterType="Long" resultMap="OcDocumentTaskResult">
+        <include refid="selectDocumentTaskVo"/>
+        where task_id = #{taskId}
+    </select>
+
+    <select id="selectTaskByVersionId" parameterType="Long"
+            resultMap="OcDocumentTaskResult">
+        <include refid="selectDocumentTaskVo"/>
+        where document_version_id = #{documentVersionId}
+          and task_type = 'parse'
+        limit 1
+    </select>
+
+    <select id="selectTaskByVersionIdAndType" resultMap="OcDocumentTaskResult">
+        <include refid="selectDocumentTaskVo"/>
+        where document_version_id = #{documentVersionId}
+          and task_type = #{taskType}
+        limit 1
+    </select>
+
+    <insert id="insertDocumentTask" parameterType="OcDocumentTask"
+            useGeneratedKeys="true" keyProperty="taskId">
+        insert into oc_document_task
+        (
+            document_id, document_version_id, task_type, status,
+            attempt_count, max_attempts, trace_id, request_file_hash,
+            create_by, create_time
+        )
+        values
+        (
+            #{documentId}, #{documentVersionId}, #{taskType}, #{status},
+            #{attemptCount}, #{maxAttempts}, #{traceId}, #{requestFileHash},
+            #{createBy}, sysdate()
+        )
+    </insert>
+
+    <update id="claimPendingTask">
+        update oc_document_task
+        set status = '1',
+            attempt_count = attempt_count + 1,
+            error_code = null,
+            error_message = null,
+            started_time = sysdate(),
+            finished_time = null,
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status = '0'
+          and attempt_count &lt; max_attempts
+    </update>
+
+    <update id="resetFailedTask">
+        update oc_document_task
+        set status = '0',
+            trace_id = #{traceId},
+            result_file_hash = null,
+            page_count = null,
+            block_count = null,
+            character_count = null,
+            error_code = null,
+            error_message = null,
+            started_time = null,
+            finished_time = null,
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status = '3'
+          and attempt_count &lt; max_attempts
+    </update>
+
+    <update id="resetRunningTask">
+        update oc_document_task
+        set status = '0',
+            trace_id = #{traceId},
+            result_file_hash = null,
+            page_count = null,
+            block_count = null,
+            character_count = null,
+            error_code = null,
+            error_message = null,
+            started_time = null,
+            finished_time = null,
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status = '1'
+          and attempt_count &lt; max_attempts
+    </update>
+
+    <update id="resetFailedTaskManually">
+        update oc_document_task
+        set status = '0',
+            max_attempts = greatest(max_attempts, attempt_count + 1),
+            trace_id = #{traceId},
+            result_file_hash = null,
+            page_count = null,
+            block_count = null,
+            character_count = null,
+            error_code = null,
+            error_message = null,
+            started_time = null,
+            finished_time = null,
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status = '3'
+    </update>
+
+    <update id="updateTaskSuccess">
+        update oc_document_task
+        set status = '2',
+            result_file_hash = #{resultFileHash},
+            page_count = #{pageCount},
+            block_count = #{blockCount},
+            character_count = #{characterCount},
+            error_code = null,
+            error_message = null,
+            finished_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status = '1'
+    </update>
+
+    <update id="updateTaskFailed">
+        update oc_document_task
+        set status = '3',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            finished_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where task_id = #{taskId}
+          and status in ('0', '1')
+    </update>
+
+</mapper>

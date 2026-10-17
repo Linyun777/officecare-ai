@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcWorkOrderMapper">
+
+    <resultMap type="OcWorkOrder" id="OcWorkOrderResult">
+        <id property="workOrderId" column="work_order_id" />
+        <result property="workOrderNo" column="work_order_no" />
+        <result property="customerOrgId" column="customer_org_id" />
+        <result property="customerName" column="customer_name" />
+        <result property="deviceId" column="device_id" />
+        <result property="deviceName" column="device_name" />
+        <result property="serialNumber" column="serial_number" />
+        <result property="brandId" column="brand_id" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelId" column="model_id" />
+        <result property="modelName" column="model_name" />
+        <result property="title" column="title" />
+        <result property="faultDescription" column="fault_description" />
+        <result property="priority" column="priority" />
+        <result property="status" column="status" />
+        <result property="assigneeUserId" column="assignee_user_id" />
+        <result property="assigneeUserName" column="assignee_user_name" />
+        <result property="assigneeNickName" column="assignee_nick_name" />
+        <result property="reporterUserId" column="reporter_user_id" />
+        <result property="reporterUserName" column="reporter_user_name" />
+        <result property="reporterNickName" column="reporter_nick_name" />
+        <result property="completionTime" column="completion_time" />
+        <result property="closeTime" column="close_time" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <resultMap type="OcAssigneeOption" id="OcAssigneeOptionResult">
+        <id property="userId" column="user_id" />
+        <result property="userName" column="user_name" />
+        <result property="nickName" column="nick_name" />
+        <result property="deptName" column="dept_name" />
+    </resultMap>
+
+    <sql id="selectWorkOrderVo">
+        select w.work_order_id, w.work_order_no, w.customer_org_id,
+               c.customer_name, w.device_id, d.device_name, d.serial_number,
+               m.brand_id, b.brand_name, d.model_id, m.model_name,
+               w.title, w.fault_description, w.priority, w.status,
+               w.assignee_user_id, au.user_name as assignee_user_name,
+               au.nick_name as assignee_nick_name,
+               w.reporter_user_id, ru.user_name as reporter_user_name,
+               ru.nick_name as reporter_nick_name,
+               w.completion_time, w.close_time, w.del_flag,
+               w.create_by, w.create_time, w.update_by, w.update_time, w.remark
+        from oc_work_order w
+        inner join oc_customer_org c on c.customer_org_id = w.customer_org_id
+        inner join oc_device d on d.device_id = w.device_id
+        inner join oc_product_model m on m.model_id = d.model_id
+        inner join oc_brand b on b.brand_id = m.brand_id
+        left join sys_user au on au.user_id = w.assignee_user_id
+        left join sys_user ru on ru.user_id = w.reporter_user_id
+    </sql>
+
+    <select id="selectWorkOrderList" parameterType="OcWorkOrder"
+            resultMap="OcWorkOrderResult">
+        <include refid="selectWorkOrderVo"/>
+        <where>
+            w.del_flag = '0'
+            <if test="workOrderNo != null and workOrderNo != ''">
+                and w.work_order_no like concat('%', #{workOrderNo}, '%')
+            </if>
+            <if test="customerOrgId != null">
+                and w.customer_org_id = #{customerOrgId}
+            </if>
+            <if test="deviceId != null">
+                and w.device_id = #{deviceId}
+            </if>
+            <if test="title != null and title != ''">
+                and w.title like concat('%', #{title}, '%')
+            </if>
+            <if test="priority != null and priority != ''">
+                and w.priority = #{priority}
+            </if>
+            <if test="status != null and status != ''">
+                and w.status = #{status}
+            </if>
+            <if test="assigneeUserId != null">
+                and w.assignee_user_id = #{assigneeUserId}
+            </if>
+        </where>
+        order by field(w.priority, '3', '2', '1', '0'),
+                 field(w.status, '0', '1', '2', '3'),
+                 w.create_time desc, w.work_order_id desc
+    </select>
+
+    <select id="selectWorkOrderById" parameterType="Long"
+            resultMap="OcWorkOrderResult">
+        <include refid="selectWorkOrderVo"/>
+        where w.work_order_id = #{workOrderId}
+          and w.del_flag = '0'
+    </select>
+
+    <select id="selectWorkOrderByNo" parameterType="String"
+            resultMap="OcWorkOrderResult">
+        <include refid="selectWorkOrderVo"/>
+        where w.work_order_no = #{workOrderNo}
+        limit 1
+    </select>
+
+    <select id="selectAssigneeOptions" resultMap="OcAssigneeOptionResult">
+        select distinct u.user_id, u.user_name, u.nick_name, d.dept_name
+        from sys_user u
+        left join sys_dept d on d.dept_id = u.dept_id
+        left join sys_user_role ur on ur.user_id = u.user_id
+        left join sys_role r on r.role_id = ur.role_id
+        where u.del_flag = '0'
+          and u.status = '0'
+          and (u.user_id = 1 or (r.role_key = 'oc_service'
+               and r.del_flag = '0' and r.status = '0'))
+        order by u.user_id
+    </select>
+
+    <select id="selectAssigneeById" parameterType="Long"
+            resultMap="OcAssigneeOptionResult">
+        select distinct u.user_id, u.user_name, u.nick_name, d.dept_name
+        from sys_user u
+        left join sys_dept d on d.dept_id = u.dept_id
+        left join sys_user_role ur on ur.user_id = u.user_id
+        left join sys_role r on r.role_id = ur.role_id
+        where u.user_id = #{userId}
+          and u.del_flag = '0'
+          and u.status = '0'
+          and (u.user_id = 1 or (r.role_key = 'oc_service'
+               and r.del_flag = '0' and r.status = '0'))
+        limit 1
+    </select>
+
+    <select id="selectPendingWorkOrderCount" resultType="long">
+        select count(1)
+        from oc_work_order
+        where del_flag = '0'
+          and status in ('0', '1')
+    </select>
+
+    <select id="countWorkOrderByDeviceId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_work_order
+        where device_id = #{deviceId}
+          and del_flag = '0'
+    </select>
+
+    <insert id="insertWorkOrder" parameterType="OcWorkOrder"
+            useGeneratedKeys="true" keyProperty="workOrderId">
+        insert into oc_work_order
+        (
+            work_order_no, customer_org_id, device_id, title,
+            fault_description, priority, status, assignee_user_id,
+            reporter_user_id, del_flag, create_by, create_time, remark
+        )
+        values
+        (
+            #{workOrderNo}, #{customerOrgId}, #{deviceId}, #{title},
+            #{faultDescription}, #{priority}, #{status}, #{assigneeUserId},
+            #{reporterUserId}, '0', #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateWorkOrder" parameterType="OcWorkOrder">
+        update oc_work_order
+        set customer_org_id = #{customerOrgId},
+            device_id = #{deviceId},
+            title = #{title},
+            fault_description = #{faultDescription},
+            priority = #{priority},
+            assignee_user_id = #{assigneeUserId},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        where work_order_id = #{workOrderId}
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+    <update id="updateAssignee">
+        update oc_work_order
+        set assignee_user_id = #{assigneeUserId},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where work_order_id = #{workOrderId}
+          and status != '3'
+          and del_flag = '0'
+    </update>
+
+    <update id="updateStatus">
+        update oc_work_order
+        set status = #{targetStatus},
+            completion_time = #{completionTime},
+            close_time = #{closeTime},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where work_order_id = #{workOrderId}
+          and status = #{currentStatus}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteWorkOrderByIds">
+        update oc_work_order
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where work_order_id in
+        <foreach collection="workOrderIds" item="workOrderId"
+                 open="(" separator="," close=")">
+            #{workOrderId}
+        </foreach>
+          and status = '0'
+          and del_flag = '0'
+    </update>
+
+</mapper>

@@ -1,0 +1,9 @@
+**/target/
+ruoyi-ui/
+.idea/
+*.iml
+*.log
+sql/
+**/application-dev.yml
+**/application-local.yml
+**/application-prod.yml

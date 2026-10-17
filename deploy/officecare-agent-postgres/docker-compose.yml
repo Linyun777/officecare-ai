@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: officecare-agent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${OFFICECARE_AGENT_POSTGRES_DB:-officecare_agent}
+      POSTGRES_USER: ${OFFICECARE_AGENT_POSTGRES_USER:-officecare_agent}
+      POSTGRES_PASSWORD: ${OFFICECARE_AGENT_POSTGRES_PASSWORD:?Set OFFICECARE_AGENT_POSTGRES_PASSWORD}
+    ports:
+      - "${OFFICECARE_AGENT_POSTGRES_PORT:-5433}:5432"
+    networks:
+      - officecare-network
+    volumes:
+      - officecare_agent_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+networks:
+  officecare-network:
+    external: true
+    name: officecare-network
+
+volumes:
+  officecare_agent_postgres_data:
+    name: officecare-agent-postgres-data

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcKnowledgeBaseMapper">
+
+    <resultMap type="OcKnowledgeBase" id="OcKnowledgeBaseResult">
+        <id property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="knowledgeBaseCode" column="knowledge_base_code" />
+        <result property="knowledgeBaseName" column="knowledge_base_name" />
+        <result property="brandId" column="brand_id" />
+        <result property="brandName" column="brand_name" />
+        <result property="modelId" column="model_id" />
+        <result property="modelName" column="model_name" />
+        <result property="description" column="description" />
+        <result property="sortOrder" column="sort_order" />
+        <result property="status" column="status" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectKnowledgeBaseVo">
+        select k.knowledge_base_id, k.knowledge_base_code, k.knowledge_base_name,
+               k.brand_id, b.brand_name, k.model_id, m.model_name, k.description,
+               k.sort_order, k.status, k.del_flag, k.create_by, k.create_time,
+               k.update_by, k.update_time, k.remark
+        from oc_knowledge_base k
+        left join oc_brand b on b.brand_id = k.brand_id
+        left join oc_product_model m on m.model_id = k.model_id
+    </sql>
+
+    <select id="selectKnowledgeBaseList" parameterType="OcKnowledgeBase" resultMap="OcKnowledgeBaseResult">
+        <include refid="selectKnowledgeBaseVo"/>
+        <where>
+            k.del_flag = '0'
+            <if test="knowledgeBaseCode != null and knowledgeBaseCode != ''">
+                and k.knowledge_base_code like concat('%', #{knowledgeBaseCode}, '%')
+            </if>
+            <if test="knowledgeBaseName != null and knowledgeBaseName != ''">
+                and k.knowledge_base_name like concat('%', #{knowledgeBaseName}, '%')
+            </if>
+            <if test="brandId != null">
+                and k.brand_id = #{brandId}
+            </if>
+            <if test="modelId != null">
+                and k.model_id = #{modelId}
+            </if>
+            <if test="status != null and status != ''">
+                and k.status = #{status}
+            </if>
+        </where>
+        order by k.sort_order, k.knowledge_base_id
+    </select>
+
+    <select id="selectKnowledgeBaseOptions" resultMap="OcKnowledgeBaseResult">
+        <include refid="selectKnowledgeBaseVo"/>
+        where k.del_flag = '0'
+          and k.status = '0'
+          and b.del_flag = '0'
+          and b.status = '0'
+          and m.del_flag = '0'
+          and m.status = '0'
+        order by k.sort_order, k.knowledge_base_id
+    </select>
+
+    <select id="selectKnowledgeBaseById" parameterType="Long" resultMap="OcKnowledgeBaseResult">
+        <include refid="selectKnowledgeBaseVo"/>
+        where k.knowledge_base_id = #{knowledgeBaseId}
+          and k.del_flag = '0'
+    </select>
+
+    <select id="selectKnowledgeBaseByCode" parameterType="String" resultMap="OcKnowledgeBaseResult">
+        <include refid="selectKnowledgeBaseVo"/>
+        where k.knowledge_base_code = #{knowledgeBaseCode}
+        limit 1
+    </select>
+
+    <select id="selectActiveKnowledgeBaseByModelId" parameterType="Long"
+            resultMap="OcKnowledgeBaseResult">
+        <include refid="selectKnowledgeBaseVo"/>
+        where k.model_id = #{modelId}
+          and k.del_flag = '0'
+          and k.status = '0'
+          and b.del_flag = '0'
+          and b.status = '0'
+          and m.del_flag = '0'
+          and m.status = '0'
+        order by k.sort_order, k.knowledge_base_id
+        limit 1
+    </select>
+
+    <select id="selectKnowledgeBaseCount" resultType="long">
+        select count(1)
+        from oc_knowledge_base
+        where del_flag = '0'
+    </select>
+
+    <select id="countKnowledgeBaseByModelId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_knowledge_base
+        where model_id = #{modelId}
+          and del_flag = '0'
+    </select>
+
+    <insert id="insertKnowledgeBase" parameterType="OcKnowledgeBase"
+            useGeneratedKeys="true" keyProperty="knowledgeBaseId">
+        insert into oc_knowledge_base
+        (
+            knowledge_base_code, knowledge_base_name, brand_id, model_id, description,
+            sort_order, status, del_flag, create_by, create_time, remark
+        )
+        values
+        (
+            #{knowledgeBaseCode}, #{knowledgeBaseName}, #{brandId}, #{modelId}, #{description},
+            #{sortOrder}, #{status}, '0', #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateKnowledgeBase" parameterType="OcKnowledgeBase">
+        update oc_knowledge_base
+        set knowledge_base_code = #{knowledgeBaseCode},
+            knowledge_base_name = #{knowledgeBaseName},
+            brand_id = #{brandId},
+            model_id = #{modelId},
+            description = #{description},
+            sort_order = #{sortOrder},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        where knowledge_base_id = #{knowledgeBaseId}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteKnowledgeBaseByIds">
+        update oc_knowledge_base
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where knowledge_base_id in
+        <foreach collection="knowledgeBaseIds" item="knowledgeBaseId" open="(" separator="," close=")">
+            #{knowledgeBaseId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

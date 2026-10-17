@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcDocumentMapper">
+
+    <resultMap type="OcDocument" id="OcDocumentResult">
+        <id property="documentId" column="document_id" />
+        <result property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="knowledgeBaseName" column="knowledge_base_name" />
+        <result property="documentTitle" column="document_title" />
+        <result property="currentVersionId" column="current_version_id" />
+        <result property="currentVersionNo" column="current_version_no" />
+        <result property="originalFileName" column="original_file_name" />
+        <result property="fileExtension" column="file_extension" />
+        <result property="fileSize" column="file_size" />
+        <result property="processStatus" column="process_status" />
+        <result property="processMessage" column="process_message" />
+        <result property="pageCount" column="page_count" />
+        <result property="indexStatus" column="index_status" />
+        <result property="indexMessage" column="index_message" />
+        <result property="indexedChunkCount" column="indexed_chunk_count" />
+        <result property="status" column="status" />
+        <result property="delFlag" column="del_flag" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <sql id="selectDocumentVo">
+        select d.document_id, d.knowledge_base_id, k.knowledge_base_name, d.document_title,
+               d.current_version_id, v.version_no as current_version_no,
+               v.original_file_name, v.file_extension, v.file_size, v.process_status,
+               v.process_message, v.page_count, v.index_status, v.index_message,
+               v.indexed_chunk_count,
+               d.status, d.del_flag, d.create_by, d.create_time, d.update_by, d.update_time, d.remark
+        from oc_document d
+        left join oc_knowledge_base k on k.knowledge_base_id = d.knowledge_base_id
+        left join oc_document_version v on v.document_version_id = d.current_version_id
+    </sql>
+
+    <select id="selectDocumentList" parameterType="OcDocument" resultMap="OcDocumentResult">
+        <include refid="selectDocumentVo"/>
+        <where>
+            d.del_flag = '0'
+            <if test="knowledgeBaseId != null">
+                and d.knowledge_base_id = #{knowledgeBaseId}
+            </if>
+            <if test="documentTitle != null and documentTitle != ''">
+                and d.document_title like concat('%', #{documentTitle}, '%')
+            </if>
+            <if test="fileExtension != null and fileExtension != ''">
+                and v.file_extension = #{fileExtension}
+            </if>
+            <if test="processStatus != null and processStatus != ''">
+                and v.process_status = #{processStatus}
+            </if>
+            <if test="indexStatus != null and indexStatus != ''">
+                and v.index_status = #{indexStatus}
+            </if>
+            <if test="status != null and status != ''">
+                and d.status = #{status}
+            </if>
+        </where>
+        order by coalesce(d.update_time, d.create_time) desc, d.document_id desc
+    </select>
+
+    <select id="selectDocumentById" parameterType="Long" resultMap="OcDocumentResult">
+        <include refid="selectDocumentVo"/>
+        where d.document_id = #{documentId}
+          and d.del_flag = '0'
+    </select>
+
+    <select id="selectDocumentByIdForUpdate" parameterType="Long" resultMap="OcDocumentResult">
+        <include refid="selectDocumentVo"/>
+        where d.document_id = #{documentId}
+          and d.del_flag = '0'
+        for update
+    </select>
+
+    <select id="selectPendingDocumentCount" resultType="long">
+        select count(1)
+        from oc_document d
+        join oc_document_version v on v.document_version_id = d.current_version_id
+        where d.del_flag = '0'
+          and v.del_flag = '0'
+          and (
+              v.process_status in ('0', '1')
+              or (v.process_status = '2' and v.index_status in ('0', '1'))
+          )
+    </select>
+
+    <select id="countDocumentByKnowledgeBaseId" parameterType="Long" resultType="int">
+        select count(1)
+        from oc_document
+        where knowledge_base_id = #{knowledgeBaseId}
+          and del_flag = '0'
+    </select>
+
+    <select id="selectCurrentIndexedVersionIds" parameterType="Long" resultType="long">
+        select v.document_version_id
+        from oc_document d
+        inner join oc_document_version v
+            on v.document_version_id = d.current_version_id
+           and v.document_id = d.document_id
+        where d.knowledge_base_id = #{knowledgeBaseId}
+          and d.status = '0'
+          and d.del_flag = '0'
+          and v.process_status = '2'
+          and v.index_status = '2'
+          and v.indexed_chunk_count > 0
+          and v.del_flag = '0'
+        order by v.document_version_id
+    </select>
+
+    <insert id="insertDocument" parameterType="OcDocument" useGeneratedKeys="true" keyProperty="documentId">
+        insert into oc_document
+        (
+            knowledge_base_id, document_title, current_version_id, status, del_flag,
+            create_by, create_time, remark
+        )
+        values
+        (
+            #{knowledgeBaseId}, #{documentTitle}, null, #{status}, '0',
+            #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateDocument" parameterType="OcDocument">
+        update oc_document
+        set document_title = #{documentTitle},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = sysdate(),
+            remark = #{remark}
+        where document_id = #{documentId}
+          and del_flag = '0'
+    </update>
+
+    <update id="updateCurrentVersion">
+        update oc_document
+        set current_version_id = #{currentVersionId},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where document_id = #{documentId}
+          and del_flag = '0'
+    </update>
+
+    <update id="deleteDocumentByIds">
+        update oc_document
+        set del_flag = '2',
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where document_id in
+        <foreach collection="documentIds" item="documentId" open="(" separator="," close=")">
+            #{documentId}
+        </foreach>
+          and del_flag = '0'
+    </update>
+
+</mapper>

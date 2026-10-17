@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcOutboxEventMapper">
+
+    <resultMap type="OcOutboxEvent" id="OcOutboxEventResult">
+        <id property="outboxId" column="outbox_id" />
+        <result property="eventId" column="event_id" />
+        <result property="dedupKey" column="dedup_key" />
+        <result property="taskId" column="task_id" />
+        <result property="documentVersionId" column="document_version_id" />
+        <result property="taskType" column="task_type" />
+        <result property="taskAttempt" column="task_attempt" />
+        <result property="routingKey" column="routing_key" />
+        <result property="payloadJson" column="payload_json" />
+        <result property="traceId" column="trace_id" />
+        <result property="status" column="status" />
+        <result property="retryCount" column="retry_count" />
+        <result property="maxRetryCount" column="max_retry_count" />
+        <result property="nextRetryTime" column="next_retry_time" />
+        <result property="lastError" column="last_error" />
+        <result property="sentTime" column="sent_time" />
+        <result property="consumeStatus" column="consume_status" />
+        <result property="consumeError" column="consume_error" />
+        <result property="consumedTime" column="consumed_time" />
+        <result property="completedTime" column="completed_time" />
+        <result property="waitTimeMs" column="wait_time_ms" />
+        <result property="processTimeMs" column="process_time_ms" />
+        <result property="redeliveryCount" column="redelivery_count" />
+        <result property="deadLetterTime" column="dead_letter_time" />
+        <result property="replayedTime" column="replayed_time" />
+        <result property="replayedBy" column="replayed_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <insert id="insertOutboxEvent" parameterType="OcOutboxEvent"
+            useGeneratedKeys="true" keyProperty="outboxId">
+        insert ignore into oc_outbox_event
+        (
+            event_id, dedup_key, task_id, document_version_id, task_type,
+            task_attempt, routing_key, payload_json, trace_id, status,
+            retry_count, max_retry_count, next_retry_time,
+            create_time, update_time
+        )
+        values
+        (
+            #{eventId}, #{dedupKey}, #{taskId}, #{documentVersionId}, #{taskType},
+            #{taskAttempt}, #{routingKey}, #{payloadJson}, #{traceId}, #{status},
+            #{retryCount}, #{maxRetryCount}, #{nextRetryTime},
+            sysdate(), sysdate()
+        )
+    </insert>
+
+    <update id="reactivateDeadEvent" parameterType="OcOutboxEvent">
+        update oc_outbox_event
+        set event_id = #{eventId},
+            routing_key = #{routingKey},
+            payload_json = #{payloadJson},
+            trace_id = #{traceId},
+            status = '0',
+            retry_count = 0,
+            max_retry_count = #{maxRetryCount},
+            next_retry_time = #{nextRetryTime},
+            last_error = null,
+            sent_time = null,
+            consume_status = '0',
+            consume_error = null,
+            consumed_time = null,
+            completed_time = null,
+            wait_time_ms = null,
+            process_time_ms = null,
+            redelivery_count = 0,
+            dead_letter_time = null,
+            replayed_time = null,
+            replayed_by = null,
+            update_time = sysdate()
+        where dedup_key = #{dedupKey}
+          and status = '4'
+    </update>
+
+    <select id="selectReadyEvents" resultMap="OcOutboxEventResult">
+        select outbox_id, event_id, dedup_key, task_id, document_version_id,
+               task_type, task_attempt, routing_key, payload_json, trace_id,
+               status, retry_count, max_retry_count, next_retry_time,
+               last_error, sent_time, create_time, update_time
+        from oc_outbox_event
+        where status in ('0', '3')
+          and retry_count &lt; max_retry_count
+          and next_retry_time &lt;= sysdate()
+        order by outbox_id
+        limit #{limit}
+    </select>
+
+    <update id="claimEvent">
+        update oc_outbox_event
+        set status = '1',
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and status in ('0', '3')
+          and retry_count &lt; max_retry_count
+          and next_retry_time &lt;= sysdate()
+    </update>
+
+    <update id="markSent">
+        update oc_outbox_event
+        set status = '2',
+            last_error = null,
+            sent_time = sysdate(),
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and status = '1'
+    </update>
+
+    <update id="markRetry">
+        update oc_outbox_event
+        set status = '3',
+            retry_count = #{retryCount},
+            next_retry_time = #{nextRetryTime},
+            last_error = #{lastError},
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and status = '1'
+    </update>
+
+    <update id="markDead">
+        update oc_outbox_event
+        set status = '4',
+            retry_count = #{retryCount},
+            last_error = #{lastError},
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and status = '1'
+    </update>
+
+    <update id="recoverStalePublishing">
+        update oc_outbox_event
+        set status = '3',
+            next_retry_time = sysdate(),
+            last_error = '发布进程中断，已自动恢复等待重试',
+            update_time = sysdate()
+        where status = '1'
+          and update_time &lt; #{cutoffTime}
+    </update>
+
+    <select id="selectOutboxEventById" resultMap="OcOutboxEventResult">
+        select outbox_id, event_id, dedup_key, task_id, document_version_id,
+               task_type, task_attempt, routing_key, payload_json, trace_id,
+               status, retry_count, max_retry_count, next_retry_time,
+               last_error, sent_time, consume_status, consume_error,
+               consumed_time, completed_time, wait_time_ms, process_time_ms,
+               redelivery_count, dead_letter_time, replayed_time, replayed_by,
+               create_time, update_time
+        from oc_outbox_event
+        where outbox_id = #{outboxId}
+    </select>
+
+    <update id="markConsumeStarted">
+        update oc_outbox_event
+        set consume_status = '1',
+            consumed_time = coalesce(consumed_time, sysdate()),
+            wait_time_ms = coalesce(
+                wait_time_ms,
+                greatest(timestampdiff(microsecond, sent_time, sysdate()) div 1000, 0)
+            ),
+            redelivery_count = redelivery_count + if(#{redelivered}, 1, 0),
+            consume_error = null,
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and status = '2'
+          and consume_status in ('0', '1')
+    </update>
+
+    <update id="markConsumeSuccess">
+        update oc_outbox_event
+        set consume_status = '2',
+            consume_error = null,
+            completed_time = sysdate(),
+            process_time_ms = greatest(
+                timestampdiff(microsecond, consumed_time, sysdate()) div 1000, 0
+            ),
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and consume_status in ('0', '1')
+    </update>
+
+    <update id="markConsumeRetry">
+        update oc_outbox_event
+        set consume_status = '3',
+            consume_error = #{consumeError},
+            completed_time = sysdate(),
+            process_time_ms = greatest(
+                timestampdiff(microsecond, consumed_time, sysdate()) div 1000, 0
+            ),
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and consume_status in ('0', '1')
+    </update>
+
+    <update id="markConsumeDead">
+        update oc_outbox_event
+        set consume_status = '4',
+            consume_error = #{consumeError},
+            completed_time = sysdate(),
+            process_time_ms = greatest(
+                timestampdiff(microsecond, consumed_time, sysdate()) div 1000, 0
+            ),
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and consume_status in ('0', '1', '3')
+    </update>
+
+    <update id="markConsumeIgnored">
+        update oc_outbox_event
+        set consume_status = '5',
+            consume_error = #{consumeError},
+            completed_time = sysdate(),
+            process_time_ms = case
+                when consumed_time is null then null
+                else greatest(
+                    timestampdiff(microsecond, consumed_time, sysdate()) div 1000, 0
+                )
+            end,
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and consume_status in ('0', '1')
+    </update>
+
+    <update id="markDeadLetterReceived">
+        update oc_outbox_event
+        set dead_letter_time = coalesce(dead_letter_time, sysdate()),
+            update_time = sysdate()
+        where event_id = #{eventId}
+          and consume_status = '4'
+    </update>
+
+    <!--
+      parse/index任务只统计仍有效的文档版本；delete_index本来就在文档删除后执行，
+      因此即使业务数据已逻辑删除也必须继续进入运行指标。
+    -->
+    <sql id="activeMqDocumentTaskCondition">
+        (
+            t.task_type = 'delete_index'
+            or exists (
+                select 1
+                from oc_document d
+                inner join oc_document_version v
+                    on v.document_version_id = t.document_version_id
+                   and v.document_id = t.document_id
+                where d.document_id = t.document_id
+                  and d.del_flag = '0'
+                  and v.del_flag = '0'
+            )
+        )
+    </sql>
+
+    <select id="selectMqMetrics"
+            resultType="com.ruoyi.officecare.domain.vo.OfficeCareMqMetrics">
+        select
+            (select count(1)
+             from oc_document_task t
+             where t.status = '0'
+               and <include refid="activeMqDocumentTaskCondition" />)
+                as pendingTaskCount,
+            (select count(1)
+             from oc_document_task t
+             where t.status = '1'
+               and <include refid="activeMqDocumentTaskCondition" />)
+                as runningTaskCount,
+            (select count(1)
+             from oc_document_task t
+             where t.status = '3'
+               and <include refid="activeMqDocumentTaskCondition" />)
+                as failedTaskCount,
+            (select count(1)
+             from oc_outbox_event
+             where status = '4' or consume_status = '4')
+                as deadLetterCount,
+            (select coalesce(sum(greatest(attempt_count - 1, 0)), 0)
+             from oc_document_task)
+                as taskRetryCount,
+            (select coalesce(sum(retry_count), 0) from oc_outbox_event)
+                as publishRetryCount,
+            (select coalesce(round(avg(wait_time_ms)), 0)
+             from oc_outbox_event where wait_time_ms is not null)
+                as averageWaitTimeMs,
+            (select coalesce(round(avg(process_time_ms)), 0)
+             from oc_outbox_event where process_time_ms is not null)
+                as averageProcessTimeMs
+    </select>
+
+    <select id="selectRecentDeadEvents"
+            resultType="com.ruoyi.officecare.domain.vo.OfficeCareMqDeadEvent">
+        select outbox_id as outboxId,
+               case when status = '4' then 'PUBLISH' else 'CONSUME' end
+                    as failureStage,
+               task_id as taskId,
+               document_version_id as documentVersionId,
+               task_type as taskType,
+               task_attempt as taskAttempt,
+               retry_count as retryCount,
+               case when status = '4' then last_error else consume_error end
+                    as errorMessage,
+               trace_id as traceId,
+               coalesce(dead_letter_time, completed_time, update_time) as deadTime
+        from oc_outbox_event
+        where status = '4' or consume_status = '4'
+        order by coalesce(dead_letter_time, completed_time, update_time) desc,
+                 outbox_id desc
+        limit #{limit}
+    </select>
+
+    <update id="reactivatePublishDead">
+        update oc_outbox_event
+        set status = '0',
+            retry_count = 0,
+            next_retry_time = sysdate(),
+            last_error = null,
+            consume_status = '0',
+            consume_error = null,
+            consumed_time = null,
+            completed_time = null,
+            wait_time_ms = null,
+            process_time_ms = null,
+            redelivery_count = 0,
+            dead_letter_time = null,
+            replayed_time = sysdate(),
+            replayed_by = #{replayedBy},
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and status = '4'
+          and consume_status = '0'
+    </update>
+
+    <update id="markConsumerDeadReplayed">
+        update oc_outbox_event
+        set consume_status = '6',
+            replayed_time = sysdate(),
+            replayed_by = #{replayedBy},
+            update_time = sysdate()
+        where outbox_id = #{outboxId}
+          and consume_status = '4'
+          and replayed_time is null
+    </update>
+
+</mapper>

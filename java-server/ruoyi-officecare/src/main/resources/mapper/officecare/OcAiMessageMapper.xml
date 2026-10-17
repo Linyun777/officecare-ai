@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcAiMessageMapper">
+
+    <resultMap type="com.ruoyi.officecare.domain.OcAiMessage" id="OcAiMessageResult">
+        <id property="messageId" column="message_id" />
+        <result property="conversationId" column="conversation_id" />
+        <result property="turnId" column="turn_id" />
+        <result property="role" column="role" />
+        <result property="content" column="content" />
+        <result property="answered" column="answered" />
+        <result property="refusalReason" column="refusal_reason" />
+        <result property="modelName" column="model_name" />
+        <result property="traceId" column="trace_id" />
+        <result property="agentPayload" column="agent_payload" />
+        <result property="feedbackType" column="feedback_type" />
+        <result property="feedbackComment" column="feedback_comment" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy" column="update_by" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <select id="selectMessageListByConversationId" parameterType="Long"
+            resultMap="OcAiMessageResult">
+        select message_id, conversation_id, turn_id, role, content, answered,
+               refusal_reason, model_name, trace_id, agent_payload,
+               feedback_type, feedback_comment, create_by, create_time,
+               update_by, update_time
+        from oc_ai_message
+        where conversation_id = #{conversationId}
+        order by message_id
+    </select>
+
+    <select id="selectRecentMessageListByConversationId"
+            resultMap="OcAiMessageResult">
+        select recent.message_id, recent.conversation_id, recent.turn_id,
+               recent.role,
+               recent.content, recent.answered, recent.refusal_reason,
+               recent.model_name, recent.trace_id, recent.agent_payload,
+               recent.feedback_type, recent.feedback_comment,
+               recent.create_by, recent.create_time, recent.update_by,
+               recent.update_time
+        from
+        (
+            select message_id, conversation_id, turn_id, role, content,
+                   answered, refusal_reason, model_name, trace_id,
+                   agent_payload, feedback_type, feedback_comment, create_by,
+                   create_time, update_by, update_time
+            from oc_ai_message
+            where conversation_id = #{conversationId}
+            order by message_id desc
+            limit #{limit}
+        ) recent
+        order by recent.message_id
+    </select>
+
+    <select id="selectMessageListByConversationIdAndTurnId"
+            resultMap="OcAiMessageResult">
+        select message_id, conversation_id, turn_id, role, content, answered,
+               refusal_reason, model_name, trace_id, agent_payload,
+               feedback_type, feedback_comment, create_by, create_time,
+               update_by, update_time
+        from oc_ai_message
+        where conversation_id = #{conversationId}
+          and turn_id = #{turnId}
+        order by message_id
+    </select>
+
+    <insert id="insertMessage"
+            parameterType="com.ruoyi.officecare.domain.OcAiMessage"
+            useGeneratedKeys="true" keyProperty="messageId">
+        insert into oc_ai_message
+        (
+            conversation_id, turn_id, role, content, answered, refusal_reason,
+            model_name, trace_id, agent_payload, feedback_type,
+            feedback_comment, create_by, create_time
+        )
+        values
+        (
+            #{conversationId}, #{turnId}, #{role}, #{content}, #{answered},
+            #{refusalReason}, #{modelName}, #{traceId}, #{agentPayload},
+            #{feedbackType}, #{feedbackComment}, #{createBy}, sysdate()
+        )
+    </insert>
+
+    <update id="updateMessageFeedback">
+        update oc_ai_message msg
+        inner join oc_ai_conversation conv
+            on conv.conversation_id = msg.conversation_id
+        set msg.feedback_type = #{feedbackType},
+            msg.feedback_comment = #{feedbackComment},
+            msg.update_by = #{updateBy},
+            msg.update_time = sysdate()
+        where msg.message_id = #{messageId}
+          and msg.role = 'assistant'
+          and conv.user_id = #{userId}
+          and conv.status = '0'
+          and conv.del_flag = '0'
+    </update>
+
+</mapper>

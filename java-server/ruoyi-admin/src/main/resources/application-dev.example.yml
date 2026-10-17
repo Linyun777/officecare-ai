@@ -1,0 +1,46 @@
+# Copy this file to application-dev.yml and replace the values for your local environment.
+# application-dev.yml is ignored by Git and must never be committed.
+officecare:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: 127.0.0.1
+    port: 3308
+    database: officecare_ai
+    username: officecare
+    password: change-me
+  redis:
+    host: 127.0.0.1
+    port: 6381
+    password: change-me
+    database: 0
+  security:
+    token-secret: change-me-to-a-random-secret
+  ai:
+    enabled: true
+    base-url: http://localhost:8000
+    service-token: change-me-to-the-same-token-as-ai-service
+    connect-timeout: 5s
+    read-timeout: 120s
+    parse-read-timeout: 1800s
+    index-read-timeout: 1800s
+    agent-read-timeout: 240s
+    max-attempts: 3
+    rag-top-k: 5
+    rag-score-threshold: 0.45
+  messaging:
+    rabbit:
+      # 未启动RabbitMQ时保持false，文档任务继续使用本地线程池。
+      enabled: false
+  druid:
+    username: change-me
+    password: change-me
+
+# 只有officecare.messaging.rabbit.enabled=true时才会建立RabbitMQ连接。
+spring:
+  rabbitmq:
+    host: 127.0.0.1
+    # production compose向虚拟机发布5673，避免占用宿主机默认5672。
+    port: 5673
+    username: officecare
+    password: change-me
+    virtual-host: /officecare

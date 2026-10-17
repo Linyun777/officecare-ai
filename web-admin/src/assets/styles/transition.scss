@@ -1,0 +1,106 @@
+// =============================================================================
+// 全局过渡
+// 改造要点：
+//  1. 去掉 `transition: all`，只声明真正需要过渡的属性；
+//  2. 时长从 500ms 收敛到 200-260ms（UI 动效上限 300ms）；
+//  3. 使用自定义缓动曲线，内置 ease 太弱；
+//  4. 退出比进入快，让界面感觉"响应及时"；
+//  5. 位移距离从 30px 收到 8px，管理后台不需要大动作。
+// 注意：类名保持与原若依一致，避免破坏 AppMain / Breadcrumb 的 <transition>。
+// =============================================================================
+
+/* fade */
+.fade-enter-active {
+  transition: opacity var(--oc-dur-base) var(--oc-ease-out);
+}
+
+.fade-leave-active {
+  transition: opacity var(--oc-dur-fast) var(--oc-ease-out);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* fade-transform：路由页面切换（AppMain 使用 mode="out-in"） */
+.fade-transform-enter-active {
+  transition: opacity var(--oc-dur-base) var(--oc-ease-out),
+    transform var(--oc-dur-slow) var(--oc-ease-out);
+}
+
+.fade-transform-leave-active {
+  transition: opacity var(--oc-dur-fast) var(--oc-ease-out),
+    transform var(--oc-dur-fast) var(--oc-ease-out);
+}
+
+.fade-transform-enter-from {
+  opacity: 0;
+  transform: translate3d(0, 8px, 0);
+}
+
+.fade-transform-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -4px, 0);
+}
+
+.fade-transform-move {
+  transition: transform var(--oc-dur-slow) var(--oc-ease-in-out);
+}
+
+/* breadcrumb transition */
+.breadcrumb-enter-active {
+  transition: opacity var(--oc-dur-base) var(--oc-ease-out),
+    transform var(--oc-dur-base) var(--oc-ease-out);
+}
+
+.breadcrumb-leave-active {
+  transition: opacity var(--oc-dur-fast) var(--oc-ease-out),
+    transform var(--oc-dur-fast) var(--oc-ease-out);
+  position: absolute;
+}
+
+.breadcrumb-enter-from {
+  opacity: 0;
+  transform: translate3d(10px, 0, 0);
+}
+
+.breadcrumb-leave-to {
+  opacity: 0;
+  transform: translate3d(-10px, 0, 0);
+}
+
+.breadcrumb-move {
+  transition: transform var(--oc-dur-base) var(--oc-ease-in-out);
+}
+
+/* 黑暗模式下的 view-transition 过渡 */
+::view-transition-new(root), ::view-transition-old(root) {
+  animation: none !important;
+  backface-visibility: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.dark::view-transition-old(root) {
+  z-index: 2147483646;
+  background: var(--bg-color-dark); 
+}
+
+.dark::view-transition-new(root) {
+  z-index: 1;
+  background: var(--bg-color);
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+  background: var(--bg-color);
+}
+
+::view-transition-new(root) {
+  z-index: 2147483646;
+  background: var(--bg-color-dark);
+}
