@@ -23,6 +23,8 @@ from app.schemas.rag_cache import (
 
 logger = logging.getLogger(__name__)
 
+RETRIEVAL_ALGORITHM_VERSION = "f10-model-scope-2026-10-17"
+
 
 @dataclass(frozen=True, slots=True)
 class RagCacheLookup:
@@ -317,6 +319,7 @@ class RedisRagAnswerCache:
                 "promptDigest": self._prompt_digest,
             },
             "retrieval": {
+                "algorithmVersion": RETRIEVAL_ALGORITHM_VERSION,
                 "embeddingBaseUrl": self._settings.embedding_base_url,
                 "embeddingModel": self._settings.embedding_model,
                 "embeddingDimension": self._settings.embedding_dimension,

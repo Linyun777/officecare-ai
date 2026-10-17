@@ -356,3 +356,125 @@ def test_retriever_returns_empty_when_collection_does_not_exist() -> None:
     )
 
     assert retriever.search(_request()) == []
+
+
+def test_retriever_filters_chunk_inheriting_other_model_section_scope() -> None:
+    section_label = _entity(
+        chunk_index=1325,
+        text=(
+            "了解在继续模式下接收传真\n"
+            "相关型号: MFC-7895DW\n"
+            "设备可以将接收到的传真存储在内存中。"
+        ),
+        page_number=472,
+        heading="了解在继续模式下接收传真",
+    )
+    inherited_other_model = _entity(
+        chunk_index=1326,
+        text=(
+            "继续模式下墨粉用尽时\n"
+            "内存已满时，必须安装新的墨粉盒，才能继续接收传真。"
+        ),
+        page_number=472,
+        heading="继续模式下墨粉用尽时",
+    )
+    correct = _entity(
+        chunk_index=1400,
+        text="内存已满时，请降低分辨率或清除内存。",
+        page_number=500,
+        heading="错误和维护信息",
+    )
+    client = FakeMilvusClient(
+        search_hits=[
+            _hit(0.80, inherited_other_model),
+            _hit(0.70, correct),
+        ],
+        query_records=[section_label, inherited_other_model, correct],
+    )
+    retriever = MilvusEvidenceRetriever(
+        _settings(),
+        FakeEmbeddingProvider(),
+        client_factory=lambda: client,
+    )
+
+    evidence = retriever.search(_request("设备提示内存已满时应该如何处理？"))
+
+    chunk_indexes = [item.document.metadata["chunk_index"] for item in evidence]
+    assert 1326 not in chunk_indexes
+    assert 1400 in chunk_indexes
+
+
+def test_retriever_filters_chunk_after_bare_group_header() -> None:
+    other_model_table = _entity(
+        chunk_index=1095,
+        text=(
+            "DCP-7195DW/MFC-7895DW\n"
+            "[拒绝访问] 您要使用的功能受到限制。"
+        ),
+        page_number=380,
+        heading="错误和维护信息",
+    )
+    other_model_continuation = _entity(
+        chunk_index=1096,
+        text="[内存已满] 设备的内存已满。降低分辨率。",
+        page_number=380,
+        heading="错误和维护信息",
+    )
+    correct = _entity(
+        chunk_index=1092,
+        text="[内存已满] 设备的内存已满。降低分辨率。清除内存中的传真。",
+        page_number=378,
+        heading="错误和维护信息",
+    )
+    client = FakeMilvusClient(
+        search_hits=[
+            _hit(0.80, other_model_continuation),
+            _hit(0.70, correct),
+        ],
+        query_records=[other_model_table, other_model_continuation, correct],
+    )
+    retriever = MilvusEvidenceRetriever(
+        _settings(),
+        FakeEmbeddingProvider(),
+        client_factory=lambda: client,
+    )
+
+    evidence = retriever.search(_request("设备提示内存已满时应该如何处理？"))
+
+    chunk_indexes = [item.document.metadata["chunk_index"] for item in evidence]
+    assert 1096 not in chunk_indexes
+    assert 1092 in chunk_indexes
+
+
+def test_retriever_keeps_chunk_after_multi_model_section_label() -> None:
+    section_label = _entity(
+        chunk_index=1091,
+        text=(
+            "错误和维护信息\n"
+            ">> DCP-7090DW/DCP-L2535DW/DCP-L2550DW/DCP-7190DW\n"
+            ">> DCP-7195DW/MFC-7895DW"
+        ),
+        page_number=378,
+        heading="错误和维护信息",
+    )
+    shared = _entity(
+        chunk_index=1092,
+        text="内存已满时，请降低分辨率或清除内存。",
+        page_number=378,
+        heading="错误和维护信息",
+    )
+    client = FakeMilvusClient(
+        search_hits=[_hit(0.80, shared)],
+        query_records=[section_label, shared],
+    )
+    retriever = MilvusEvidenceRetriever(
+        _settings(),
+        FakeEmbeddingProvider(),
+        client_factory=lambda: client,
+    )
+
+    evidence = retriever.search(_request("设备提示内存已满时应该如何处理？"))
+
+    assert 1092 in [
+        item.document.metadata["chunk_index"] for item in evidence
+    ]

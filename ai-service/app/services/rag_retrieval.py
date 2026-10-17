@@ -9,9 +9,12 @@ from app.core.exceptions import ServiceError
 from app.schemas.rag import RagAnswerRequest
 from app.services.embedding import EmbeddingProvider
 from app.services.retrieval_quality import (
+    declared_model_codes,
+    section_model_codes,
     is_applicable_to_model,
     is_navigation_only,
     lexical_relevance_scores,
+    printer_model_codes,
     query_without_selected_scope,
 )
 
@@ -24,6 +27,7 @@ MAX_NEIGHBOR_SEEDS = 20
 LEXICAL_RESERVE_THRESHOLD = 0.25
 MAX_LEXICAL_RESERVED = 2
 HEADING_LEXICAL_WEIGHT = 0.35
+MODEL_SCOPE_LOOKBACK = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,25 +181,36 @@ class MilvusEvidenceRetriever:
         dense_evidence: list[RetrievedEvidence],
         scanned_documents: list[Document],
     ) -> list[RetrievedEvidence]:
-        dense_evidence = [
-            item
-            for item in dense_evidence
-            if self._is_applicable_document(item.document, request.model_name)
-        ]
-        scanned_documents = [
-            document
-            for document in scanned_documents
-            if self._is_applicable_document(document, request.model_name)
-        ]
-        document_lookup: dict[tuple[int, int], Document] = {
+        all_documents: dict[tuple[int, int], Document] = {
             self._document_key(document): document
             for document in scanned_documents
         }
         for item in dense_evidence:
-            document_lookup.setdefault(
+            all_documents.setdefault(
                 self._document_key(item.document),
                 item.document,
             )
+        selected_models = printer_model_codes(request.model_name or "")
+        document_lookup: dict[tuple[int, int], Document] = {
+            key: document
+            for key, document in all_documents.items()
+            if self._is_applicable_document(document, request.model_name)
+            and not self._has_conflicting_neighbor_scope(
+                document,
+                all_documents,
+                selected_models,
+            )
+        }
+        dense_evidence = [
+            item
+            for item in dense_evidence
+            if self._document_key(item.document) in document_lookup
+        ]
+        scanned_documents = [
+            document
+            for document in scanned_documents
+            if self._document_key(document) in document_lookup
+        ]
 
         candidates: dict[tuple[int, int], _Candidate] = {}
 
@@ -386,6 +401,41 @@ class MilvusEvidenceRetriever:
             heading=str(document.metadata.get("heading") or ""),
             selected_model=selected_model,
         )
+
+    def _has_conflicting_neighbor_scope(
+        self,
+        document: Document,
+        documents: dict[tuple[int, int], Document],
+        selected_models: set[str],
+    ) -> bool:
+        """Reject chunks that inherit a section label for another model.
+
+        Multi-model manuals put ``相关型号`` once at the start of a section;
+        the following chunks often do not repeat the label. The nearest
+        preceding declaration is therefore treated as the chunk's scope.
+        """
+        if not selected_models:
+            return False
+
+        own_declaration = declared_model_codes(
+            document.page_content,
+            heading=str(document.metadata.get("heading") or ""),
+        )
+        if own_declaration:
+            return False
+
+        version_id, chunk_index = self._document_key(document)
+        for offset in range(1, MODEL_SCOPE_LOOKBACK + 1):
+            neighbor = documents.get((version_id, chunk_index - offset))
+            if neighbor is None:
+                continue
+            declared_models = section_model_codes(
+                neighbor.page_content,
+                heading=str(neighbor.metadata.get("heading") or ""),
+            )
+            if declared_models:
+                return declared_models.isdisjoint(selected_models)
+        return False
 
     def _get_client(self) -> Any:
         if self._client is not None:

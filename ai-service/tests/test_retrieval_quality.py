@@ -1,11 +1,34 @@
 from app.services.retrieval_quality import (
+    declared_model_codes,
     has_scope_conflict,
     has_unsupported_model_capability,
     is_applicable_to_model,
     is_navigation_only,
     lexical_relevance_scores,
     query_without_selected_scope,
+    section_model_codes,
 )
+
+
+def test_declared_model_codes_returns_only_explicit_labels() -> None:
+    assert declared_model_codes(
+        "相关型号: MFC-7895DW\n传真设置。"
+    ) == {"mfc7895dw"}
+    assert declared_model_codes(
+        "设备内部卡纸时，请等待内部零件冷却。"
+    ) == set()
+
+
+def test_section_model_codes_recognizes_standalone_group_header() -> None:
+    assert section_model_codes(
+        "DCP-7195DW/MFC-7895DW\n错误信息 原因 措施"
+    ) == {"dcp7195dw", "mfc7895dw"}
+    assert section_model_codes(
+        "设备内部发生卡纸时，请打开前盖。"
+    ) == set()
+    assert section_model_codes(
+        "Windows 7\n设备设置"
+    ) == set()
 
 
 def test_navigation_classifier_is_conservative() -> None:
@@ -40,6 +63,33 @@ def test_lexical_scoring_prioritizes_exact_number_and_fault_phrase() -> None:
     assert scores[1] > scores[0]
     assert scores[1] > scores[2]
     assert scores[1] >= 0.5
+
+
+def test_lexical_scoring_boosts_error_label_matching_question() -> None:
+    scores = lexical_relevance_scores(
+        "设备提示内存已满时应该如何处理？",
+        [
+            "[内存已满] 降低分辨率。清除内存中的传真。",
+            "设备支持无线网络打印。",
+        ],
+    )
+
+    assert scores[0] >= 0.18
+    assert scores[0] > scores[1]
+
+
+def test_lexical_scoring_ignores_short_menu_label() -> None:
+    scores = lexical_relevance_scores(
+        "如何维修传真板上的电源芯片？",
+        [
+            "[传真] [重拨] [暂停] [免提] 用于传真发送。",
+            "[打印机] [网络] [测试打印] 设置打印机选项。",
+            "设备支持无线网络打印。",
+        ],
+    )
+
+    assert scores[0] < 0.18
+    assert scores[1] < 0.18
 
 
 def test_lexical_scoring_understands_speed_and_supply_answer_shapes() -> None:
@@ -96,6 +146,13 @@ def test_scope_conflict_ignores_fault_and_consumable_identifiers() -> None:
 def test_model_applicability_rejects_explicit_other_model_section() -> None:
     assert not is_applicable_to_model(
         "相关型号: MFC-7895DW\n按[设置]进入传真菜单。",
+        selected_model="DCP-L2550DW",
+    )
+
+
+def test_model_applicability_keeps_bare_group_header_chunk() -> None:
+    assert is_applicable_to_model(
+        "DCP-7195DW/MFC-7895DW\n错误信息 原因 措施",
         selected_model="DCP-L2550DW",
     )
 

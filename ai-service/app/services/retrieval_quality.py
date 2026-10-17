@@ -32,6 +32,34 @@ _MODEL_FAMILY_PATTERN = re.compile(
 )
 _PRINTER_MODEL_FAMILIES = ("dcp", "mfc", "hl")
 _MODEL_LIST_LINE_PATTERN = re.compile(r"(?:^|\n)\s*>>\s*([^\n\r]+)")
+_ERROR_LABEL_PATTERN = re.compile(r"[\[\u3010]([^\]\u3011]{2,40})[\]\u3011]")
+_ERROR_LABEL_HINTS = (
+    "错误",
+    "失败",
+    "无法",
+    "不能",
+    "未",
+    "已",
+    "用尽",
+    "卡纸",
+    "拒绝",
+    "禁用",
+    "满",
+    "中断",
+    "超",
+    "限制",
+    "异常",
+    "警告",
+    "更换",
+    "关闭",
+    "打开",
+    "请",
+)
+_QUOTED_PHRASE_PATTERN = re.compile(
+    r"[\u201c\u201d\"\u0027\u2018\u2019\u300c\u300d\u300e\u300f]"
+    r"([^\u201c\u201d\"\u0027\u2018\u2019\u300c\u300d\u300e\u300f]{2,40})"
+    r"[\u201c\u201d\"\u0027\u2018\u2019\u300c\u300d\u300e\u300f]"
+)
 _ASCII_TECH_TERM_PATTERN = re.compile(
     r"(?<![a-z0-9])[a-z]{2,}(?:[-._/][a-z0-9]{2,})*(?![a-z0-9])",
     re.IGNORECASE,
@@ -140,15 +168,25 @@ def lexical_relevance_scores(
         return [0.0] * len(documents)
 
     scores: list[float] = []
-    for document in normalized_documents:
+    compact_question = _compact_search_text(question)
+    for document, normalized_document in zip(documents, normalized_documents):
         matched_weight = sum(
-            weight for term, weight in weighted_terms.items() if term in document
+            weight
+            for term, weight in weighted_terms.items()
+            if term in normalized_document
         )
         base_score = matched_weight / denominator
+        anchor_bonus = min(
+            0.35,
+            _quoted_phrase_bonus(question, normalized_document)
+            + _error_label_bonus(compact_question, document),
+        )
         scores.append(
             min(
                 1.0,
-                base_score + _intent_bonus(question, document),
+                base_score
+                + _intent_bonus(question, normalized_document)
+                + anchor_bonus,
             )
         )
     return scores
@@ -203,6 +241,50 @@ def has_unsupported_model_capability(
     return "传真" in compact_question or "fax" in compact_question
 
 
+def declared_model_codes(
+    text: str,
+    *,
+    heading: str = "",
+) -> set[str]:
+    """Return only the model codes explicitly declared as applicable."""
+    normalized_text = unicodedata.normalize("NFKC", f"{heading}\n{text}")
+    declared_models: set[str] = set()
+    for match in _APPLICABLE_MODEL_PATTERN.finditer(normalized_text):
+        declaration = match.group(1) or match.group(2) or ""
+        declared_models.update(_model_codes(declaration))
+    for match in _MODEL_LIST_LINE_PATTERN.finditer(normalized_text):
+        declared_models.update(_model_codes(match.group(1)))
+    declared_models.update(_model_only_heading_codes(heading))
+    return declared_models
+
+
+def section_model_codes(
+    text: str,
+    *,
+    heading: str = "",
+) -> set[str]:
+    """Return model codes declared by labels or standalone group headers.
+
+    Manuals sometimes continue a model-specific table on the next page with a
+    bare line such as ``DCP-7195DW/MFC-7895DW``. Such a line is a section
+    scope, not a mention, so it must participate in model filtering.
+    """
+    normalized_text = unicodedata.normalize("NFKC", text)
+    declared_models = declared_model_codes(normalized_text, heading=heading)
+    for line in normalized_text.splitlines():
+        declared_models.update(
+            model_code
+            for model_code in _model_only_heading_codes(line)
+            if _model_family(model_code) is not None
+        )
+    return declared_models
+
+
+def printer_model_codes(text: str) -> set[str]:
+    """Return printer model identifiers, excluding supplies and fault codes."""
+    return _printer_model_codes(text)
+
+
 def is_applicable_to_model(
     text: str,
     *,
@@ -221,17 +303,11 @@ def is_applicable_to_model(
     if not selected_models:
         return True
 
-    normalized_text = unicodedata.normalize("NFKC", f"{heading}\n{text}")
-    declared_models: set[str] = set()
-    for match in _APPLICABLE_MODEL_PATTERN.finditer(normalized_text):
-        declaration = match.group(1) or match.group(2) or ""
-        declared_models.update(_model_codes(declaration))
-    for match in _MODEL_LIST_LINE_PATTERN.finditer(normalized_text):
-        declared_models.update(_model_codes(match.group(1)))
-    declared_models.update(_model_only_heading_codes(heading))
+    declared_models = declared_model_codes(text, heading=heading)
     if declared_models:
         return not selected_models.isdisjoint(declared_models)
 
+    normalized_text = unicodedata.normalize("NFKC", f"{heading}\n{text}")
     selected_families = {_model_family(model) for model in selected_models}
     selected_families.discard(None)
     declared_families = {
@@ -395,6 +471,31 @@ def _scope_value_pattern(value: str) -> re.Pattern[str] | None:
         return None
     body = r"[\s._/\\‐‑‒–—−-]*".join(re.escape(part) for part in parts)
     return re.compile(rf"(?<![a-z0-9]){body}(?![a-z0-9])", re.IGNORECASE)
+
+
+def _error_label_bonus(compact_question: str, document: str) -> float:
+    """Boost a chunk whose UI error label appears verbatim in the question."""
+    bonus = 0.0
+    for match in _ERROR_LABEL_PATTERN.finditer(document):
+        label = _compact_search_text(match.group(1))
+        if (
+            len(label) >= 3
+            and any(hint in label for hint in _ERROR_LABEL_HINTS)
+            and label in compact_question
+        ):
+            bonus += 0.2
+    return min(bonus, 0.3)
+
+
+def _quoted_phrase_bonus(question: str, compact_document: str) -> float:
+    """Boost documents that contain a UI message quoted in the question."""
+    normalized_question = unicodedata.normalize("NFKC", question)
+    bonus = 0.0
+    for match in _QUOTED_PHRASE_PATTERN.finditer(normalized_question):
+        phrase = _compact_search_text(match.group(1))
+        if len(phrase) >= 2 and phrase in compact_document:
+            bonus += 0.2
+    return min(bonus, 0.3)
 
 
 def _intent_bonus(question: str, compact_document: str) -> float:
