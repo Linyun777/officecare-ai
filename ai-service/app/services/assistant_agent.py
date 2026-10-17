@@ -1,5 +1,8 @@
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Protocol
+import weakref
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import SummarizationMiddleware
@@ -95,6 +98,10 @@ class LangChainAssistantAgent:
         self._settings = settings
         self._rag_service = rag_service
         self._checkpointer = checkpointer
+        self._turn_locks: weakref.WeakValueDictionary[
+            str, asyncio.Lock
+        ] = weakref.WeakValueDictionary()
+        self._turn_locks_guard = asyncio.Lock()
         self._model = model or self._create_model()
         self._response_strategy = ToolStrategy(
             AssistantAgentDecision,
@@ -135,6 +142,27 @@ class LangChainAssistantAgent:
         request: AssistantTurnRequest,
     ) -> AssistantTurnResponse:
         config = self._thread_config(request)
+        turn_id = str(request.turn_id)
+        async with self._turn_lock(config, turn_id):
+            return await self._run_turn_locked(request, config, turn_id)
+
+    @asynccontextmanager
+    async def _turn_lock(self, config: dict, turn_id: str):
+        key = f"{config['configurable']['thread_id']}:{turn_id}"
+        async with self._turn_locks_guard:
+            lock = self._turn_locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._turn_locks[key] = lock
+        async with lock:
+            yield
+
+    async def _run_turn_locked(
+        self,
+        request: AssistantTurnRequest,
+        config: dict,
+        turn_id: str,
+    ) -> AssistantTurnResponse:
         try:
             snapshot = await self._agent.aget_state(config)
         except Exception as exc:
@@ -142,7 +170,6 @@ class LangChainAssistantAgent:
         existing = dict(snapshot.values or {})
         self._validate_thread_scope(existing, request)
 
-        turn_id = str(request.turn_id)
         cached_response = self._duplicate_turn_response(
             existing,
             turn_id,

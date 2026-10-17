@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcAiTurnExecutionMapper">
+
+    <resultMap type="com.ruoyi.officecare.domain.OcAiTurnExecution" id="OcAiTurnExecutionResult">
+        <id property="executionId" column="execution_id" />
+        <result property="conversationId" column="conversation_id" />
+        <result property="turnId" column="turn_id" />
+        <result property="userId" column="user_id" />
+        <result property="questionHash" column="question_hash" />
+        <result property="status" column="status" />
+        <result property="ownerToken" column="owner_token" />
+        <result property="attemptCount" column="attempt_count" />
+        <result property="leaseUntil" column="lease_until" />
+        <result property="traceId" column="trace_id" />
+        <result property="resultPayload" column="result_payload" />
+        <result property="userMessageId" column="user_message_id" />
+        <result property="assistantMessageId" column="assistant_message_id" />
+        <result property="errorCode" column="error_code" />
+        <result property="errorMessage" column="error_message" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <select id="selectByConversationIdAndTurnId"
+            resultMap="OcAiTurnExecutionResult">
+        select execution_id, conversation_id, turn_id, user_id, question_hash,
+               status, owner_token, attempt_count, lease_until, trace_id,
+               result_payload, user_message_id, assistant_message_id,
+               error_code, error_message, create_time, update_time
+        from oc_ai_turn_execution
+        where conversation_id = #{conversationId}
+          and turn_id = #{turnId}
+    </select>
+
+    <insert id="insertExecution" useGeneratedKeys="true"
+            keyProperty="execution.executionId">
+        insert into oc_ai_turn_execution
+        (
+            conversation_id, turn_id, user_id, question_hash, status,
+            owner_token, attempt_count, lease_until, trace_id,
+            create_time, update_time
+        )
+        values
+        (
+            #{execution.conversationId}, #{execution.turnId},
+            #{execution.userId}, #{execution.questionHash},
+            #{execution.status}, #{execution.ownerToken},
+            #{execution.attemptCount},
+            date_add(sysdate(), interval #{leaseSeconds} second),
+            #{execution.traceId}, sysdate(), sysdate()
+        )
+    </insert>
+
+    <update id="takeOver">
+        update oc_ai_turn_execution
+        set owner_token = #{ownerToken},
+            attempt_count = attempt_count + 1,
+            status = 'PROCESSING',
+            lease_until = date_add(sysdate(), interval #{leaseSeconds} second),
+            trace_id = #{traceId},
+            error_code = null,
+            error_message = null,
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and turn_id = #{turnId}
+          and question_hash = #{questionHash}
+          and (
+              status = 'FAILED'
+              or (status = 'PROCESSING' and lease_until &lt; sysdate())
+          )
+    </update>
+
+    <update id="takeOverPersisting">
+        update oc_ai_turn_execution
+        set owner_token = #{ownerToken},
+            attempt_count = attempt_count + 1,
+            lease_until = date_add(sysdate(), interval #{leaseSeconds} second),
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and turn_id = #{turnId}
+          and status = 'PERSISTING'
+          and lease_until &lt; sysdate()
+    </update>
+
+    <update id="beginPersist">
+        update oc_ai_turn_execution
+        set status = 'PERSISTING',
+            owner_token = #{ownerToken},
+            lease_until = date_add(sysdate(), interval #{leaseSeconds} second),
+            update_time = sysdate()
+        where conversation_id = #{conversationId}
+          and turn_id = #{turnId}
+          and status = 'READY'
+    </update>
+
+    <update id="markReady">
+        update oc_ai_turn_execution
+        set status = 'READY',
+            result_payload = #{resultPayload},
+            error_code = null,
+            error_message = null,
+            lease_until = date_add(sysdate(), interval #{leaseSeconds} second),
+            update_time = sysdate()
+        where execution_id = #{executionId}
+          and owner_token = #{ownerToken}
+          and status = 'PROCESSING'
+    </update>
+
+    <update id="markSucceeded">
+        update oc_ai_turn_execution
+        set status = 'SUCCEEDED',
+            user_message_id = #{userMessageId},
+            assistant_message_id = #{assistantMessageId},
+            error_code = null,
+            error_message = null,
+            lease_until = sysdate(),
+            update_time = sysdate()
+        where execution_id = #{executionId}
+          and owner_token = #{ownerToken}
+          and status = 'PERSISTING'
+    </update>
+
+    <update id="markFailed">
+        update oc_ai_turn_execution
+        set status = 'FAILED',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            lease_until = sysdate(),
+            update_time = sysdate()
+        where execution_id = #{executionId}
+          and owner_token = #{ownerToken}
+          and status = 'PROCESSING'
+    </update>
+
+    <update id="markPersistFailed">
+        update oc_ai_turn_execution
+        set status = 'FAILED',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            lease_until = sysdate(),
+            update_time = sysdate()
+        where execution_id = #{executionId}
+          and owner_token = #{ownerToken}
+          and status = 'PERSISTING'
+    </update>
+
+    <update id="resetToReady">
+        update oc_ai_turn_execution
+        set status = 'READY',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            lease_until = date_add(sysdate(), interval #{leaseSeconds} second),
+            update_time = sysdate()
+        where execution_id = #{executionId}
+          and owner_token = #{ownerToken}
+          and status = 'PERSISTING'
+    </update>
+
+</mapper>

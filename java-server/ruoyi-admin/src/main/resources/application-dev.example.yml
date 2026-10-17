@@ -24,6 +24,9 @@ officecare:
     parse-read-timeout: 1800s
     index-read-timeout: 1800s
     agent-read-timeout: 240s
+    turn-wait-timeout: 60s
+    turn-lease: 360s
+    turn-wait-poll-interval: 200ms
     max-attempts: 3
     rag-top-k: 5
     rag-score-threshold: 0.45

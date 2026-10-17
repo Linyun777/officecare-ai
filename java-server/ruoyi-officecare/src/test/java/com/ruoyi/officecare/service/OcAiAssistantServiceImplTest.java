@@ -12,6 +12,7 @@ import com.ruoyi.officecare.config.OfficeCareAiProperties;
 import com.ruoyi.officecare.domain.OcAiConversation;
 import com.ruoyi.officecare.domain.OcAiMessage;
 import com.ruoyi.officecare.domain.OcKnowledgeBase;
+import com.ruoyi.officecare.domain.OcAiTurnExecution;
 import com.ruoyi.officecare.domain.dto.AiAssistantTurnRequest;
 import com.ruoyi.officecare.domain.dto.AiAssistantTurnResponse;
 import com.ruoyi.officecare.domain.dto.AiRagAnswerResponse;
@@ -22,7 +23,10 @@ import com.ruoyi.officecare.mapper.OcAiMessageCitationMapper;
 import com.ruoyi.officecare.mapper.OcAiMessageMapper;
 import com.ruoyi.officecare.mapper.OcDocumentMapper;
 import com.ruoyi.officecare.mapper.OcKnowledgeBaseMapper;
+import com.ruoyi.officecare.mapper.OcAiTurnExecutionMapper;
 import com.ruoyi.officecare.service.impl.OcAiAssistantServiceImpl;
+import com.ruoyi.officecare.service.impl.OcAiTurnExecutionService;
+import com.ruoyi.officecare.service.impl.OcAiTurnPersistenceService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -94,6 +98,38 @@ class OcAiAssistantServiceImplTest
 
         StubAiClient aiClient = new StubAiClient(agentResponse());
         OfficeCareAiProperties properties = new OfficeCareAiProperties();
+        OcAiTurnExecutionMapper executionMapper = proxy(
+            OcAiTurnExecutionMapper.class,
+            (methodName, arguments) ->
+            {
+                if ("selectByConversationIdAndTurnId".equals(methodName))
+                {
+                    return null;
+                }
+                if ("insertExecution".equals(methodName))
+                {
+                    OcAiTurnExecution execution =
+                        (OcAiTurnExecution) arguments[0];
+                    execution.setExecutionId(200L);
+                    return 1;
+                }
+                if ("markReady".equals(methodName)
+                    || "beginPersist".equals(methodName)
+                    || "markSucceeded".equals(methodName)
+                    || "markFailed".equals(methodName)
+                    || "markPersistFailed".equals(methodName)
+                    || "resetToReady".equals(methodName))
+                {
+                    return 1;
+                }
+                return null;
+            });
+        OcAiTurnExecutionService executionService =
+            new OcAiTurnExecutionService(executionMapper, properties);
+        OcAiTurnPersistenceService persistenceService =
+            new OcAiTurnPersistenceService(
+                conversationMapper, messageMapper, citationMapper,
+                executionMapper);
         ObjectMapper objectMapper = new ObjectMapper();
         OcAiAssistantServiceImpl service = new OcAiAssistantServiceImpl(
             knowledgeBaseMapper,
@@ -101,6 +137,8 @@ class OcAiAssistantServiceImplTest
             conversationMapper,
             messageMapper,
             citationMapper,
+            executionService,
+            persistenceService,
             aiClient,
             properties,
             objectMapper);
@@ -177,14 +215,26 @@ class OcAiAssistantServiceImplTest
                 "selectCitationListByConversation".equals(methodName)
                     ? List.of() : null);
         StubAiClient aiClient = new StubAiClient(agentResponse());
+        OfficeCareAiProperties properties = new OfficeCareAiProperties();
+        OcAiTurnExecutionMapper executionMapper = proxy(
+            OcAiTurnExecutionMapper.class,
+            (methodName, arguments) -> null);
+        OcAiTurnExecutionService executionService =
+            new OcAiTurnExecutionService(executionMapper, properties);
+        OcAiTurnPersistenceService persistenceService =
+            new OcAiTurnPersistenceService(
+                conversationMapper, messageMapper, citationMapper,
+                executionMapper);
         OcAiAssistantServiceImpl service = new OcAiAssistantServiceImpl(
             knowledgeBaseMapper,
             documentMapper,
             conversationMapper,
             messageMapper,
             citationMapper,
+            executionService,
+            persistenceService,
             aiClient,
-            new OfficeCareAiProperties(),
+            properties,
             objectMapper);
 
         OcAiConversationQuestionRequest repeated =

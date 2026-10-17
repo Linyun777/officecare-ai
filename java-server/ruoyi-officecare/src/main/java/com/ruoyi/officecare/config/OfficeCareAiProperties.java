@@ -37,6 +37,15 @@ public class OfficeCareAiProperties
     /** 智能报修Agent读取超时。 */
     private Duration agentReadTimeout = Duration.ofMinutes(4);
 
+    /** 同一turnId等待其他执行者完成的最长时间。 */
+    private Duration turnWaitTimeout = Duration.ofSeconds(60);
+
+    /** 单轮执行租约；必须大于Agent读取超时，避免正常推理被接管。 */
+    private Duration turnLease = Duration.ofMinutes(6);
+
+    /** 等待同一turnId完成时的轮询间隔。 */
+    private Duration turnWaitPollInterval = Duration.ofMillis(200);
+
     /** 单个任务最多人工执行次数。 */
     private int maxAttempts = 3;
 
@@ -124,6 +133,54 @@ public class OfficeCareAiProperties
     public void setAgentReadTimeout(Duration agentReadTimeout)
     {
         this.agentReadTimeout = agentReadTimeout;
+    }
+
+    public Duration getTurnWaitTimeout()
+    {
+        return turnWaitTimeout;
+    }
+
+    public void setTurnWaitTimeout(Duration turnWaitTimeout)
+    {
+        if (turnWaitTimeout == null || turnWaitTimeout.isNegative()
+            || turnWaitTimeout.isZero())
+        {
+            throw new IllegalArgumentException(
+                "officecare.ai.turn-wait-timeout必须大于0");
+        }
+        this.turnWaitTimeout = turnWaitTimeout;
+    }
+
+    public Duration getTurnLease()
+    {
+        return turnLease;
+    }
+
+    public void setTurnLease(Duration turnLease)
+    {
+        if (turnLease == null || turnLease.isNegative()
+            || turnLease.isZero())
+        {
+            throw new IllegalArgumentException(
+                "officecare.ai.turn-lease必须大于0");
+        }
+        this.turnLease = turnLease;
+    }
+
+    public Duration getTurnWaitPollInterval()
+    {
+        return turnWaitPollInterval;
+    }
+
+    public void setTurnWaitPollInterval(Duration turnWaitPollInterval)
+    {
+        if (turnWaitPollInterval == null || turnWaitPollInterval.isNegative()
+            || turnWaitPollInterval.isZero())
+        {
+            throw new IllegalArgumentException(
+                "officecare.ai.turn-wait-poll-interval必须大于0");
+        }
+        this.turnWaitPollInterval = turnWaitPollInterval;
     }
 
     public int getMaxAttempts()

@@ -1,3 +1,5 @@
+import asyncio
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -33,10 +35,22 @@ class ScriptedAssistantModel(BaseChatModel):
     _responses: list[AIMessage | Exception] = PrivateAttr()
     _messages: list[list[object]] = PrivateAttr(default_factory=list)
     _bound_tool_names: list[list[str]] = PrivateAttr(default_factory=list)
+    _call_count: int = PrivateAttr(default=0)
+    _delay_seconds: float = PrivateAttr(default=0.0)
 
-    def __init__(self, responses: list[AIMessage | Exception]) -> None:
+    def __init__(
+        self,
+        responses: list[AIMessage | Exception],
+        *,
+        delay_seconds: float = 0.0,
+    ) -> None:
         super().__init__()
         self._responses = list(responses)
+        self._delay_seconds = delay_seconds
+
+    @property
+    def call_count(self) -> int:
+        return self._call_count
 
     @property
     def _llm_type(self) -> str:
@@ -62,6 +76,9 @@ class ScriptedAssistantModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self._call_count += 1
+        if self._delay_seconds:
+            time.sleep(self._delay_seconds)
         self._messages.append(list(messages))
         response = self._responses.pop(0)
         if isinstance(response, Exception):
@@ -370,6 +387,40 @@ async def test_assistant_returns_cached_response_for_duplicate_turn_id() -> None
     assert second == first
     assert model.remaining_response_count == 0
     assert len(model.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_assistant_serializes_concurrent_duplicate_turn_id() -> None:
+    model = ScriptedAssistantModel(
+        [
+            _decision_call(
+                response_type="CLARIFICATION",
+                answer="请说明斑点之间的距离。",
+                diagnostic_status="COLLECTING_INFORMATION",
+                requires_user_reply=True,
+                call_id="decision-concurrent-duplicate",
+            )
+        ],
+        delay_seconds=0.2,
+    )
+    service = LangChainAssistantAgent(
+        _settings(),
+        FakeRagService(),
+        InMemorySaver(),
+        model=model,
+    )
+    request = _request(
+        question="打印有斑点",
+        turn_id="0e4f3f0b-9dd6-4f3d-9e1e-2c2f4d5e6a7b",
+    )
+
+    first, second = await asyncio.gather(
+        service.run_turn(request),
+        service.run_turn(request),
+    )
+
+    assert first == second
+    assert model.call_count == 1
 
 
 @pytest.mark.asyncio

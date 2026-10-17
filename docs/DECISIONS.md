@@ -5,3 +5,7 @@
 - 2026-10-17：F01/F02 已从静态风险升级为测试环境确认的问题，但阶段 01 只复现、记录和验证恢复，不在无设计情况下修复；阶段 02 优先处理 Java 事务边界与同一 `turnId` 的服务端幂等。P01-03 在用户提供 Docker 主机或 SSH 前保持 BLOCKED，不新建基础设施。
 - 2026-10-17：正式工单当前按 `oc_service` 角色可见，草稿按用户隔离；这是现有 RBAC 行为，不登记为越权 Bug。是否按用户/组织收紧工单可见范围，留作阶段 02 的产品决策。
 - 2026-10-17：用户决定跳过 P01-03 部署与健康检查验收。该项保持未验证，不写成通过，也不在本轮继续要求 Docker/SSH；Compose、容器启动、外部网络、容器内 DNS、Nginx 和容器健康检查留待将来需要部署验收时再补。
+- 2026-10-17：F02 采用 MySQL 执行状态表 `oc_ai_turn_execution`，唯一键 `(conversation_id, turn_id)`，用 `owner_token` + `lease_until` 和条件 `UPDATE` 实现原子占用、等待、重放与接管；不引入 Redis 分布式锁，跨实例一致性的唯一依据是数据库。
+- 2026-10-17：F01 移除 `answerInConversation()` 方法级事务，Agent 调用前不开启事务；Agent 结构化结果先写入 `result_payload`，消息、引用、会话状态与执行状态由 `OcAiTurnPersistenceService` 在独立短事务内提交。失败时执行状态回到 `READY`，重试只补落库，不重复推理。
+- 2026-10-17：`officecare.ai.turn-lease` 默认 360s，必须大于 `agent-read-timeout` 的 240s；租约过短会让正常推理被其他实例接管。`turn-wait-timeout` 默认 60s，只影响并发重复请求的等待时长，不改变最终结果。
+- 2026-10-17：Python 只做进程内 `thread_id + turnId` 的 `asyncio.Lock`，用于挡住同进程并发；不把它当作跨实例幂等方案。阶段 02 的写链路验证只使用 `*_test` 资源，未碰开发库和开发 Milvus 集合。

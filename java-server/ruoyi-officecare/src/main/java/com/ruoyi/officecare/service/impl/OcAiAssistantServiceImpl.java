@@ -6,6 +6,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -16,12 +19,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.officecare.client.AiDocumentParseException;
 import com.ruoyi.officecare.client.OfficeCareAiDocumentClient;
 import com.ruoyi.officecare.config.OfficeCareAiProperties;
 import com.ruoyi.officecare.domain.OcAiConversation;
 import com.ruoyi.officecare.domain.OcAiMessage;
 import com.ruoyi.officecare.domain.OcAiMessageCitation;
 import com.ruoyi.officecare.domain.OcKnowledgeBase;
+import com.ruoyi.officecare.domain.OcAiTurnExecution;
 import com.ruoyi.officecare.domain.dto.AiAssistantTurnRequest;
 import com.ruoyi.officecare.domain.dto.AiAssistantTurnResponse;
 import com.ruoyi.officecare.domain.dto.AiRagAnswerRequest;
@@ -91,6 +96,10 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
 
     private final OcAiMessageCitationMapper citationMapper;
 
+    private final OcAiTurnExecutionService executionService;
+
+    private final OcAiTurnPersistenceService persistenceService;
+
     private final OfficeCareAiDocumentClient aiClient;
 
     private final OfficeCareAiProperties aiProperties;
@@ -103,6 +112,8 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
         OcAiConversationMapper conversationMapper,
         OcAiMessageMapper messageMapper,
         OcAiMessageCitationMapper citationMapper,
+        OcAiTurnExecutionService executionService,
+        OcAiTurnPersistenceService persistenceService,
         OfficeCareAiDocumentClient aiClient,
         OfficeCareAiProperties aiProperties,
         ObjectMapper objectMapper)
@@ -112,6 +123,8 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
         this.citationMapper = citationMapper;
+        this.executionService = executionService;
+        this.persistenceService = persistenceService;
         this.aiClient = aiClient;
         this.aiProperties = aiProperties;
         this.objectMapper = objectMapper;
@@ -225,7 +238,6 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public OcAiConversationAnswerResponse answerInConversation(
         Long conversationId,
         OcAiConversationQuestionRequest request,
@@ -244,58 +256,299 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
             return persisted;
         }
 
-        OcKnowledgeBase knowledgeBase = requireAvailableKnowledgeBase(
-            conversation.getKnowledgeBaseId());
         String traceId = createAssistantTraceId(
-            knowledgeBase.getKnowledgeBaseId());
-        AiAssistantTurnResponse result = executeAssistantTurn(
-            conversation, knowledgeBase, normalizedQuestion, turnId,
-            userId, traceId);
+            conversation.getKnowledgeBaseId());
+        String questionHash = hashQuestion(normalizedQuestion);
+        String ownerToken = UUID.randomUUID().toString();
+        OcAiTurnExecutionService.ClaimResult claim = executionService.claim(
+            conversationId, turnId, userId, questionHash, ownerToken, traceId);
 
-        OcAiMessage userMessage = new OcAiMessage();
-        userMessage.setConversationId(conversationId);
-        userMessage.setTurnId(turnId);
-        userMessage.setRole(ROLE_USER);
-        userMessage.setContent(normalizedQuestion);
-        userMessage.setFeedbackType(FEEDBACK_NONE);
-        userMessage.setCreateBy(username);
-        insertMessage(userMessage);
-
-        OcAiMessage assistantMessage = new OcAiMessage();
-        assistantMessage.setConversationId(conversationId);
-        assistantMessage.setTurnId(turnId);
-        assistantMessage.setRole(ROLE_ASSISTANT);
-        assistantMessage.setContent(result.getAnswer());
-        assistantMessage.setAnswered(result.getAnswered());
-        assistantMessage.setRefusalReason(result.getRefusalReason());
-        assistantMessage.setModelName(result.getModelName());
-        assistantMessage.setTraceId(traceId);
-        assistantMessage.setAgentPayload(serializeAgentResult(result));
-        assistantMessage.setFeedbackType(FEEDBACK_NONE);
-        assistantMessage.setCreateBy(username);
-        insertMessage(assistantMessage);
-
-        saveCitations(assistantMessage.getMessageId(), result.getCitations());
-
-        String generatedTitle = buildConversationTitle(normalizedQuestion);
-        if (conversationMapper.touchConversation(
-            conversationId, userId, generatedTitle, username) != 1)
+        switch (claim.getType())
         {
-            throw new ServiceException("更新AI会话状态失败");
+            case CONFLICT:
+                throw new ServiceException("本轮请求ID已用于其他问题");
+            case REPLAY:
+                return replayExecution(
+                    conversation, normalizedQuestion, turnId,
+                    claim.getExecution());
+            case FINISH:
+                return persistWithOwnership(
+                    conversation, normalizedQuestion, turnId, userId,
+                    username, claim.getExecution(), ownerToken);
+            case BUSY:
+                return awaitTurn(
+                    conversation, normalizedQuestion, turnId, questionHash,
+                    userId, username, ownerToken);
+            case CLAIMED:
+                return executeClaimedTurn(
+                    conversation, normalizedQuestion, turnId, userId,
+                    username, claim.getExecution(), ownerToken);
+            default:
+                throw new ServiceException("无法确定本轮请求执行状态");
         }
-        String finalTitle = DEFAULT_CONVERSATION_TITLE.equals(conversation.getTitle())
-            ? generatedTitle : conversation.getTitle();
+    }
 
+    private OcAiConversationAnswerResponse executeClaimedTurn(
+        OcAiConversation conversation,
+        String question,
+        String turnId,
+        Long userId,
+        String username,
+        OcAiTurnExecution execution,
+        String ownerToken)
+    {
+        AiAssistantTurnResponse result;
+        try
+        {
+            OcKnowledgeBase knowledgeBase = requireAvailableKnowledgeBase(
+                conversation.getKnowledgeBaseId());
+            result = executeAssistantTurn(
+                conversation, knowledgeBase, question, turnId, userId,
+                execution.getTraceId());
+        }
+        catch (RuntimeException exception)
+        {
+            executionService.markFailed(
+                execution.getExecutionId(), ownerToken,
+                resolveErrorCode(exception), exception.getMessage());
+            throw exception;
+        }
+
+        String resultPayload = serializeAgentResult(result);
+        if (!executionService.markReady(
+            execution.getExecutionId(), ownerToken, resultPayload))
+        {
+            throw new ServiceException(
+                "本轮请求执行权已失效，请使用同一请求ID重试");
+        }
+        execution.setResultPayload(resultPayload);
+
+        if (!executionService.beginPersist(
+            conversation.getConversationId(), turnId, ownerToken))
+        {
+            return awaitTurn(
+                conversation, question, turnId, execution.getQuestionHash(),
+                userId, username, ownerToken);
+        }
+        return persistWithOwnership(
+            conversation, question, turnId, userId, username,
+            execution, ownerToken);
+    }
+
+    private OcAiConversationAnswerResponse persistWithOwnership(
+        OcAiConversation conversation,
+        String question,
+        String turnId,
+        Long userId,
+        String username,
+        OcAiTurnExecution execution,
+        String ownerToken)
+    {
+        String resultPayload = execution.getResultPayload();
+        AiAssistantTurnResponse result;
+        try
+        {
+            result = requireAgentResult(resultPayload);
+        }
+        catch (RuntimeException exception)
+        {
+            executionService.markPersistFailed(
+                execution.getExecutionId(), ownerToken,
+                "ASSISTANT_RESULT_INVALID", exception.getMessage());
+            throw exception;
+        }
+        String generatedTitle = buildConversationTitle(question);
+        try
+        {
+            OcAiTurnPersistenceService.PersistResult persisted =
+                persistenceService.persistTurn(
+                    conversation, question, generatedTitle, turnId, userId,
+                    username, execution.getTraceId(), resultPayload, result,
+                    execution.getExecutionId(), ownerToken);
+            return buildAnswerResponse(
+                conversation, question, turnId,
+                persisted.getUserMessageId(),
+                persisted.getAssistantMessageId(),
+                execution.getTraceId(), result);
+        }
+        catch (RuntimeException exception)
+        {
+            executionService.resetToReady(
+                execution.getExecutionId(), ownerToken,
+                resolveErrorCode(exception), exception.getMessage());
+            throw exception;
+        }
+    }
+
+    private OcAiConversationAnswerResponse replayExecution(
+        OcAiConversation conversation,
+        String question,
+        String turnId,
+        OcAiTurnExecution execution)
+    {
+        if (execution.getUserMessageId() != null
+            && execution.getAssistantMessageId() != null
+            && !StringUtils.isEmpty(
+                StringUtils.trim(execution.getResultPayload())))
+        {
+            return buildAnswerResponse(
+                conversation, question, turnId,
+                execution.getUserMessageId(),
+                execution.getAssistantMessageId(),
+                execution.getTraceId(),
+                requireAgentResult(execution.getResultPayload()));
+        }
+
+        OcAiConversationAnswerResponse persisted = selectPersistedTurn(
+            conversation, turnId, question);
+        if (persisted == null)
+        {
+            throw new ServiceException("本轮请求已完成但消息记录缺失");
+        }
+        return persisted;
+    }
+
+    private OcAiConversationAnswerResponse awaitTurn(
+        OcAiConversation conversation,
+        String question,
+        String turnId,
+        String questionHash,
+        Long userId,
+        String username,
+        String ownerToken)
+    {
+        long deadline = System.nanoTime()
+            + aiProperties.getTurnWaitTimeout().toNanos();
+        long pollMillis = Math.max(
+            50L, aiProperties.getTurnWaitPollInterval().toMillis());
+        while (System.nanoTime() < deadline)
+        {
+            sleepForTurnPoll(pollMillis);
+            OcAiTurnExecution execution = executionService.find(
+                conversation.getConversationId(), turnId);
+            if (execution == null)
+            {
+                throw new ServiceException("本轮请求执行状态不存在，请重试");
+            }
+            if (!questionHash.equals(execution.getQuestionHash()))
+            {
+                throw new ServiceException("本轮请求ID已用于其他问题");
+            }
+
+            String status = execution.getStatus();
+            if (OcAiTurnExecutionService.STATUS_SUCCEEDED.equals(status))
+            {
+                return replayExecution(
+                    conversation, question, turnId, execution);
+            }
+            if (OcAiTurnExecutionService.STATUS_READY.equals(status))
+            {
+                if (executionService.beginPersist(
+                    conversation.getConversationId(), turnId, ownerToken))
+                {
+                    return persistWithOwnership(
+                        conversation, question, turnId, userId, username,
+                        execution, ownerToken);
+                }
+                continue;
+            }
+            if (OcAiTurnExecutionService.STATUS_PERSISTING.equals(status))
+            {
+                if (executionService.takeOverPersisting(
+                    conversation.getConversationId(), turnId, ownerToken))
+                {
+                    execution.setOwnerToken(ownerToken);
+                    return persistWithOwnership(
+                        conversation, question, turnId, userId, username,
+                        execution, ownerToken);
+                }
+                continue;
+            }
+            if (OcAiTurnExecutionService.STATUS_FAILED.equals(status))
+            {
+                throw new ServiceException(buildFailureMessage(execution));
+            }
+        }
+        throw new ServiceException(
+            "本轮请求正在处理中，请稍后使用同一请求ID重试");
+    }
+
+    private OcAiConversationAnswerResponse buildAnswerResponse(
+        OcAiConversation conversation,
+        String question,
+        String turnId,
+        Long userMessageId,
+        Long assistantMessageId,
+        String traceId,
+        AiAssistantTurnResponse result)
+    {
+        String finalTitle = DEFAULT_CONVERSATION_TITLE.equals(
+            conversation.getTitle())
+                ? buildConversationTitle(question)
+                : conversation.getTitle();
         OcAiConversationAnswerResponse response =
             new OcAiConversationAnswerResponse();
-        response.setConversationId(conversationId);
+        response.setConversationId(conversation.getConversationId());
         response.setConversationTitle(finalTitle);
         response.setTurnId(turnId);
-        response.setUserMessageId(userMessage.getMessageId());
-        response.setAssistantMessageId(assistantMessage.getMessageId());
+        response.setUserMessageId(userMessageId);
+        response.setAssistantMessageId(assistantMessageId);
         response.setTraceId(traceId);
         response.setResult(result);
         return response;
+    }
+
+    private String hashQuestion(String question)
+    {
+        try
+        {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(
+                question.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hash = new StringBuilder(bytes.length * 2);
+            for (byte value : bytes)
+            {
+                hash.append(Character.forDigit((value >> 4) & 0x0F, 16));
+                hash.append(Character.forDigit(value & 0x0F, 16));
+            }
+            return hash.toString();
+        }
+        catch (NoSuchAlgorithmException exception)
+        {
+            throw new IllegalStateException("当前JVM不支持SHA-256", exception);
+        }
+    }
+
+    private String resolveErrorCode(RuntimeException exception)
+    {
+        if (exception instanceof AiDocumentParseException)
+        {
+            return ((AiDocumentParseException) exception).getErrorCode();
+        }
+        return "ASSISTANT_TURN_FAILED";
+    }
+
+    private String buildFailureMessage(OcAiTurnExecution execution)
+    {
+        String message = StringUtils.trim(execution.getErrorMessage());
+        if (StringUtils.isEmpty(message))
+        {
+            return "本轮请求处理失败，请使用同一请求ID重试";
+        }
+        return "本轮请求处理失败：" + message + "；请使用同一请求ID重试";
+    }
+
+    private void sleepForTurnPoll(long pollMillis)
+    {
+        try
+        {
+            Thread.sleep(pollMillis);
+        }
+        catch (InterruptedException exception)
+        {
+            Thread.currentThread().interrupt();
+            throw new ServiceException("等待本轮请求完成时被中断");
+        }
     }
 
     @Override
@@ -523,16 +776,10 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
         }
 
         AiAssistantTurnResponse result = requireAgentResult(assistantMessage);
-        OcAiConversationAnswerResponse response =
-            new OcAiConversationAnswerResponse();
-        response.setConversationId(conversation.getConversationId());
-        response.setConversationTitle(conversation.getTitle());
-        response.setTurnId(turnId);
-        response.setUserMessageId(userMessage.getMessageId());
-        response.setAssistantMessageId(assistantMessage.getMessageId());
-        response.setTraceId(assistantMessage.getTraceId());
-        response.setResult(result);
-        return response;
+        return buildAnswerResponse(
+            conversation, normalizedQuestion, turnId,
+            userMessage.getMessageId(), assistantMessage.getMessageId(),
+            assistantMessage.getTraceId(), result);
     }
 
     private String serializeAgentResult(AiAssistantTurnResponse result)
@@ -549,14 +796,20 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
 
     private AiAssistantTurnResponse requireAgentResult(OcAiMessage message)
     {
-        String payload = StringUtils.trim(message.getAgentPayload());
-        if (StringUtils.isEmpty(payload))
+        return requireAgentResult(message.getAgentPayload());
+    }
+
+    private AiAssistantTurnResponse requireAgentResult(String payload)
+    {
+        String normalized = StringUtils.trim(payload);
+        if (StringUtils.isEmpty(normalized))
         {
             throw new ServiceException("本轮AI助手响应快照不存在");
         }
         try
         {
-            return objectMapper.readValue(payload, AiAssistantTurnResponse.class);
+            return objectMapper.readValue(
+                normalized, AiAssistantTurnResponse.class);
         }
         catch (JsonProcessingException exception)
         {
@@ -585,45 +838,7 @@ public class OcAiAssistantServiceImpl implements IOcAiAssistantService
         }
     }
 
-    private void insertMessage(OcAiMessage message)
-    {
-        if (messageMapper.insertMessage(message) != 1)
-        {
-            throw new ServiceException("保存AI会话消息失败");
-        }
-    }
 
-    private void saveCitations(
-        Long messageId,
-        List<AiRagAnswerResponse.Citation> citations)
-    {
-        if (citations == null)
-        {
-            return;
-        }
-        for (AiRagAnswerResponse.Citation source : citations)
-        {
-            OcAiMessageCitation citation = new OcAiMessageCitation();
-            citation.setMessageId(messageId);
-            citation.setCitationIndex(source.getCitationIndex());
-            citation.setKnowledgeBaseId(source.getKnowledgeBaseId());
-            citation.setBrandId(source.getBrandId());
-            citation.setModelId(source.getModelId());
-            citation.setDocumentId(source.getDocumentId());
-            citation.setDocumentVersionId(source.getDocumentVersionId());
-            citation.setDocumentTitle(source.getDocumentTitle());
-            citation.setOriginalFileName(source.getOriginalFileName());
-            citation.setPageNumber(source.getPageNumber());
-            citation.setChunkIndex(source.getChunkIndex());
-            citation.setHeading(source.getHeading());
-            citation.setQuote(source.getQuote());
-            citation.setScore(source.getScore());
-            if (citationMapper.insertCitation(citation) != 1)
-            {
-                throw new ServiceException("保存AI回答引用失败");
-            }
-        }
-    }
 
     private void validateResponse(
         AiRagAnswerResponse response,
