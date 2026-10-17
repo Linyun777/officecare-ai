@@ -50,8 +50,10 @@ redis-data/
 Thumbs.db
 
 # Local-only development and process documentation
-/docs/
+/docs/archive/
+/notes/
 /java-server/doc/
+/ai-service/evaluation-results/
 /ai-service/README.md
 /deploy/production/README.md
 /java-server/README.md
