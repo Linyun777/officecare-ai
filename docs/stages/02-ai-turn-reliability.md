@@ -184,7 +184,7 @@ Python 自检没有安装或变更依赖：仅在测试进程设置 `LANGSMITH_T
 
 #### 交付内容
 
-- 独立工作区：`codex/m0-engineering-baseline`，实现基线为 GitHub `main` 的 `f25015e`。本轮提交按用户“验收后提交推送”指令交付到 GitHub `main`，实现提交标题为 `fix: complete M0 turn recovery and baseline CI`；具体提交与远端结果在验收收口时补记。主目录和既有 RAG 工作区保持各自改动。
+- 独立工作区：`codex/m0-engineering-baseline`，实现基线为 GitHub `main` 的 `f25015e`。本轮按用户“验收后提交推送”指令交付，实现提交 [`a05ee74`](https://github.com/Linyun777/officecare-ai/commit/a05ee74f19cfbaab36af8c74f8209fd0c53960ee) 已普通快进推送到 GitHub `main`。主目录和既有 RAG 工作区保持各自改动。
 - 前端失败后保留原问题与 `turnId`，提供“重试原问题”；未完成时阻止发送另一条问题，同一执行中的请求只发送一次。会话切换时按历史助手消息对账，已保存结果不重复追加。
 - 会话列表刷新失败保留当前会话与已完成回答；历史加载失败仍保留当前页面内待重试问题的入口。只在 AI 会话回答接口绕过通用一秒重复提交拦截，服务端幂等继续负责执行一致性。
 - 新增 9 条 Node 内置回归和 `npm test`；在现有 Java 测试中新增 3 条已保存结果恢复 / 落库重试 / 完成快照重放回归，无新增测试依赖。
@@ -201,7 +201,8 @@ Python 自检没有安装或变更依赖：仅在测试进程设置 `LANGSMITH_T
 | 前端依赖复现 | `npm ci --ignore-scripts --no-audit --no-fund`（本地附加忽略目录缓存路径） | 安装 528 个锁定依赖；锁文件无变化 |
 | 前端状态回归 | `npm test` | 9 passed，0 failed |
 | 前端生产构建 | `npm run build:prod` | 2470 modules transformed，built in 14.00s |
-| CI 静态核对 | YAML 结构、工作目录、只读权限、关闭追踪；逐项 `git ls-remote` 核对 4 个官方 Action 标签 | 检查通过；GitHub 托管 runner 尚未实际运行 |
+| CI 静态核对 | YAML 结构、工作目录、只读权限、关闭追踪；逐项 `git ls-remote` 核对 4 个官方 Action 标签 | 静态检查通过；GitHub 托管 runner 实跑结果见下一行 |
+| GitHub CI 首次实跑 | [`main` / `a05ee74` 工作流](https://github.com/Linyun777/officecare-ai/actions/runs/40102202786)，Ubuntu 托管 runner | 三项 job 全部 SUCCESS：Java 101 tests，BUILD SUCCESS；Python 159 passed in 1.91s；前端 9 passed / 0 failed，2470 modules transformed，built in 16.62s |
 | 真实 Vue 组件界面 | 本地 Vite 加载助手组件，以合成 API 注入“已完成但响应丢失”及“会话列表刷新失败”；通过浏览器操作发送、重试和会话切换 | 失败有重试入口；手动重试成功且问题只出现一次；列表刷新失败不丢结果；切换返回自动对账；连续 Enter 时输入已禁用，未产生额外请求 |
 
 界面自检服务记录：3 次回答 HTTP 请求对应 2 个不同请求 ID；前两次的 ID 与原问题完全相同，第三次新问题使用新 ID。假服务按请求 ID 保存 2 份结果；这是合成 API 的协议与界面验证，不等同于真实数据库或模型并发压测。脚本、记录与截图保留在忽略的 `notes/` 下，一次性 Vite 与假 API 已停止。
@@ -211,8 +212,15 @@ Python 自检没有安装或变更依赖：仅在测试进程设置 `LANGSMITH_T
 - 按用户“验收后提交推送”指令，复核本轮代码、设计范围与实际测试证据后，阶段 02 / M0 在本文明示边界内**已验收**。未另行安排独立测试，未开展 M1。
 - 本轮没有重跑真实 MySQL / PostgreSQL 跨存储故障注入、多 JVM 并发或真实模型评测；2026-10-17 的集成记录保留原日期，不能当成本轮结果。
 - 待重试状态只在当前页面生命周期内保留；刷新、关闭页面或退出后的恢复留待 M5。M0 没有新增浏览器持久存储。
-- CI 配置已完成，本地相应命令通过；首次 GitHub 实跑及 Linux runner 的结果在本次已授权推送后核对，不提前标成通过。
+- CI 配置、本地相应命令和首次 GitHub / Linux runner 实跑均已通过，运行记录见上表；这些确定性测试不替代真实数据库故障注入、真实模型质量或部署验收。
 - P01-03 部署验收仍按用户原决定跳过，既有 RAG 质量问题仍留在阶段 03。
+
+#### 验收与交付
+
+- 2026-10-24：按用户“验收后提交推送”指令完成 M0 验收与交付；没有启动 M1，也没有新增独立测试安排。
+- 实现提交：`a05ee74f19cfbaab36af8c74f8209fd0c53960ee`，`fix: complete M0 turn recovery and baseline CI`；提交作者使用用户指定的仓库邮箱。
+- 推送目标：仅 GitHub `main`，由 `f25015e` 普通快进到 `a05ee74`；未改写历史，未将旧主目录或阶段 03 未提交内容带入本轮提交。
+- 三项远端 CI 已通过。本次结果文档的收口提交由 Git 日志定位；提交范围仍只包含本阶段结果与 STATUS。
 
 #### 本轮源码入口
 
