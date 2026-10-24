@@ -8,10 +8,10 @@
 
 ## 范围与不做
 
-- 只改 AI 助手单轮调用链：`OcAiAssistantServiceImpl`、执行状态表、落库事务、FastAPI 单轮入口。
+- 原阶段 02 针对 AI 助手单轮调用链：`OcAiAssistantServiceImpl`、执行状态表、落库事务、FastAPI 单轮入口。
 - 不改会话、消息、引用表结构；不改 Milvus Schema、不重建向量；不改 RAG 检索与回答策略。
 - 不引入 Redis 分布式锁、消息队列补偿或新的外部依赖。
-- 不改工单、文档任务和前端交互。
+- 不改工单和文档任务。M0 已获用户授权补充前端重试与 CI，范围以设计末尾的收口补充为准。
 
 ## 设计
 
@@ -59,6 +59,18 @@ PROCESSING -> READY -> PERSISTING -> SUCCEEDED
 
 同步写入 `application-dev.example.yml` 和 `deploy/production/docker-compose.yml`。
 
+### 2026-10-24 M0 收口设计
+
+用户已明确要求开始完成总体路线 M0。本次作为阶段 02 的收口补充，不启动阶段 03 / M1 开发。用户验收仍在自检之后。
+
+- 开发工作区沿用当前独立 worktree，新分支 `codex/m0-engineering-baseline`，代码基于 GitHub `main` 的 `f25015e`；主目录和既有 RAG 改动保留。
+- 前端增加按会话保留的本轮请求状态。失败后显示“重试原问题”，复用同一个 `turnId` 和原问题；未处理完原请求时阻止发送新问题，重复点击 / Enter 共用正在执行的请求。
+- 当前页面内切换会话后，可从历史消息对账：已存在该轮助手消息则结束待重试状态，否则恢复失败提示。状态只保留在当前页面生命周期，不新增浏览器持久存储；刷新后的恢复留待 M5。
+- 已成功返回的消息按服务端消息 ID 更新，不重复追加；刷新会话列表失败不把已成功的回答改成失败，也不清空现有会话。
+- 仅 AI 会话回答接口关闭通用前端“一秒内重复提交”拦截，由本轮请求状态和已有服务端幂等保证可安全重试；后端接口及响应结构保持现状。
+- 新增最小 GitHub Actions CI：Java 17 全模块构建与现有本地单测；Python 3.13 的现有 pytest；Node 24 的请求状态测试及 Vite 生产构建。CI 使用只读权限，不需要真实模型 Key 或数据库，关闭追踪，不自动运行付费真实评测。
+- 新增前端 Node 内置测试命令及有意义的请求状态回归，不新增 npm / Python / Maven 依赖，不更改锁文件、数据库迁移、Milvus 或全局配置。CI 工作流文件和 package scripts 的新增列为本次工程配置变化。
+- 自检覆盖请求失败后重试、重复调用合并、不同会话隔离、修改原问题冲突、成功后下一轮、历史对账，以及现有服务端重放 / 恢复测试。必要时使用一次性假服务做端到端验证，测试只使用隔离资源；独立测试仍按用户安排。
 ## 内部步骤
 
 1. 新增 016 迁移和 `OcAiTurnExecution` 领域对象、Mapper、Mapper XML。
@@ -81,7 +93,7 @@ PROCESSING -> READY -> PERSISTING -> SUCCEEDED
 
 - 新增：`016_officecare_ai_turn_execution.sql`、`OcAiTurnExecution.java`、`OcAiTurnExecutionMapper.java`、`OcAiTurnExecutionMapper.xml`、`OcAiTurnExecutionService.java`、`OcAiTurnPersistenceService.java`、`OcAiTurnExecutionServiceTest.java`。
 - 修改：`OcAiAssistantServiceImpl.java`、`OfficeCareAiProperties.java`、`OcAiAssistantServiceImplTest.java`、`assistant_agent.py`、`test_assistant_agent.py`、`application-dev.example.yml`、`deploy/production/docker-compose.yml`。
-- 实现提交：`0e675ff`，原实现基线 `5330b9e`。2026-10-24 已在线核实该提交位于 GitHub `main`，原实现工作区干净；用户验收仍未完成。当前基线和工作区入口见本文末尾“2026-10-24 基线复核”。
+- 实现提交：`0e675ff`，原实现基线 `5330b9e`。2026-10-24 已在线核实该提交位于 GitHub `main`，原实现工作区干净；当前验收结论见本文末尾的 M0 结果，基线和工作区入口见“2026-10-24 基线复核”。
 
 ### 2026-10-17 实际运行的测试与结果
 
@@ -108,7 +120,7 @@ F02 对照：修复前 2/5/10 路并发分别产生 4/10/20 次模型调用且�
 - 未做真实 `kill -9` 中断；用注入过期租约模拟进程中断后的接管。
 - `awaitTurn` 在持有者租约未过期时最多等待 `turn-wait-timeout`；租约过期后的接管由重试触发，未在等待循环内主动抢占。
 - P01-03 部署验收仍按用户决定跳过，不计入本阶段。
-- 前端重复点击的真实浏览器行为未验证；服务端幂等不依赖前端。
+- 2026-10-17 未验证前端浏览器行为；M0 已补合成接口下的重复 Enter、原问题重试与会话对账验证，范围见末尾结果。服务端幂等不依赖前端。
 - 实现的提交状态见本节“交付内容”；代码已进入 GitHub `main` 不等同于用户已验收。本轮基线文档的交付授权与范围见末尾“文档提交与推送”。
 
 ### 源码入口
@@ -167,3 +179,43 @@ Python 自检没有安装或变更依赖：仅在测试进程设置 `LANGSMITH_T
 - 新提交使用用户指定的仓库级邮箱；全局 Git 配置和已有提交历史保持原样。
 - 推送目标为 `github` 的 `main`，按普通快进更新执行；原主目录及既有 RAG 工作区保持各自的未提交改动。
 - 文档差异、相对链接和提交范围已检查；本次交付未重复运行 Java/Python 测试，实际自检范围仍以上表为准。阶段验收状态以真实验收结果记录。
+
+### 2026-10-24 M0 收口自检
+
+#### 交付内容
+
+- 独立工作区：`codex/m0-engineering-baseline`，实现基线为 GitHub `main` 的 `f25015e`。本轮提交按用户“验收后提交推送”指令交付到 GitHub `main`，实现提交标题为 `fix: complete M0 turn recovery and baseline CI`；具体提交与远端结果在验收收口时补记。主目录和既有 RAG 工作区保持各自改动。
+- 前端失败后保留原问题与 `turnId`，提供“重试原问题”；未完成时阻止发送另一条问题，同一执行中的请求只发送一次。会话切换时按历史助手消息对账，已保存结果不重复追加。
+- 会话列表刷新失败保留当前会话与已完成回答；历史加载失败仍保留当前页面内待重试问题的入口。只在 AI 会话回答接口绕过通用一秒重复提交拦截，服务端幂等继续负责执行一致性。
+- 新增 9 条 Node 内置回归和 `npm test`；在现有 Java 测试中新增 3 条已保存结果恢复 / 落库重试 / 完成快照重放回归，无新增测试依赖。
+- 新增 `.github/workflows/ci.yml`：Java 17 全模块构建及测试、Python 3.13 确定性测试、Node 24 测试及生产构建。工作流只有 `contents: read`，关闭追踪，不使用模型密钥、真实数据库或付费评测。
+- 未修改生产后端接口、依赖版本、锁文件、数据库迁移、向量 Schema 或全局配置。
+
+#### 本轮实际运行
+
+| 项目 | 实际命令 / 操作 | 结果 |
+|---|---|---|
+| Java 全模块 | `mvn -o --batch-mode --no-transfer-progress verify` | 101 tests，0 failures，0 errors，0 skipped；7 个 reactor 模块全部 SUCCESS，生成 `ruoyi-admin.jar` |
+| Java 恢复定向回归 | 原设计离线命令选取 `OcAiAssistantServiceImplTest,OcAiTurnExecutionServiceTest` | 13 tests，通过；新增用例验证保存结果重试不调用 AI、落库失败重置待恢复状态、完成快照不重复写入 |
+| Python 基线 | 复用主目录虚拟环境，关闭追踪与插件自动加载，执行 `python -m pytest -p pytest_asyncio.plugin -p no:cacheprovider --assert=plain -o addopts='' -q -s` | 159 passed in 1.60s；该计数对应 GitHub 基线，未混入 RAG 工作区额外测试 |
+| 前端依赖复现 | `npm ci --ignore-scripts --no-audit --no-fund`（本地附加忽略目录缓存路径） | 安装 528 个锁定依赖；锁文件无变化 |
+| 前端状态回归 | `npm test` | 9 passed，0 failed |
+| 前端生产构建 | `npm run build:prod` | 2470 modules transformed，built in 14.00s |
+| CI 静态核对 | YAML 结构、工作目录、只读权限、关闭追踪；逐项 `git ls-remote` 核对 4 个官方 Action 标签 | 检查通过；GitHub 托管 runner 尚未实际运行 |
+| 真实 Vue 组件界面 | 本地 Vite 加载助手组件，以合成 API 注入“已完成但响应丢失”及“会话列表刷新失败”；通过浏览器操作发送、重试和会话切换 | 失败有重试入口；手动重试成功且问题只出现一次；列表刷新失败不丢结果；切换返回自动对账；连续 Enter 时输入已禁用，未产生额外请求 |
+
+界面自检服务记录：3 次回答 HTTP 请求对应 2 个不同请求 ID；前两次的 ID 与原问题完全相同，第三次新问题使用新 ID。假服务按请求 ID 保存 2 份结果；这是合成 API 的协议与界面验证，不等同于真实数据库或模型并发压测。脚本、记录与截图保留在忽略的 `notes/` 下，一次性 Vite 与假 API 已停止。
+
+#### 验收边界
+
+- 按用户“验收后提交推送”指令，复核本轮代码、设计范围与实际测试证据后，阶段 02 / M0 在本文明示边界内**已验收**。未另行安排独立测试，未开展 M1。
+- 本轮没有重跑真实 MySQL / PostgreSQL 跨存储故障注入、多 JVM 并发或真实模型评测；2026-10-17 的集成记录保留原日期，不能当成本轮结果。
+- 待重试状态只在当前页面生命周期内保留；刷新、关闭页面或退出后的恢复留待 M5。M0 没有新增浏览器持久存储。
+- CI 配置已完成，本地相应命令通过；首次 GitHub 实跑及 Linux runner 的结果在本次已授权推送后核对，不提前标成通过。
+- P01-03 部署验收仍按用户原决定跳过，既有 RAG 质量问题仍留在阶段 03。
+
+#### 本轮源码入口
+
+- [请求状态与去重](../../web-admin/src/utils/assistantTurn.js)、[助手页面](../../web-admin/src/views/officecare/assistant/index.vue)、[回答 API](../../web-admin/src/api/officecare/assistant.js)
+- [前端回归](../../web-admin/tests/assistantTurn.test.js)、[Java 恢复回归](../../java-server/ruoyi-officecare/src/test/java/com/ruoyi/officecare/service/OcAiAssistantServiceImplTest.java)
+- [最小 CI](../../.github/workflows/ci.yml)

@@ -24,7 +24,7 @@
                 <div class="card-title">我的会话</div>
                 <span>仅显示当前登录用户的最近 100 条</span>
               </div>
-              <el-button type="primary" icon="Plus" @click="openConversationDialog">
+              <el-button type="primary" icon="Plus" :disabled="answering" @click="openConversationDialog">
                 新会话
               </el-button>
             </div>
@@ -59,6 +59,7 @@
                   link
                   icon="Edit"
                   title="重命名"
+                  :disabled="answering || messageLoading"
                   @click.stop="renameConversation(item)"
                 />
                 <el-button
@@ -66,6 +67,7 @@
                   type="danger"
                   icon="Delete"
                   title="删除"
+                  :disabled="answering || messageLoading"
                   @click.stop="removeConversation(item)"
                 />
               </div>
@@ -91,7 +93,7 @@
             :key="example"
             class="example-question"
             type="button"
-            :disabled="answering || !activeConversation"
+            :disabled="answering || messageLoading || !activeConversation || !!pendingTurn"
             @click="useExample(example)"
           >
             {{ example }}
@@ -194,6 +196,17 @@
                   </el-tag>
                 </div>
                 <div class="message-text">{{ message.content }}</div>
+                <div v-if="message.requestFailed" class="retry-actions">
+                  <el-button
+                    type="primary"
+                    plain
+                    :loading="answering"
+                    :disabled="answering || messageLoading"
+                    @click="retryOriginalQuestion(message)"
+                  >
+                    重试原问题
+                  </el-button>
+                </div>
 
                 <div
                   v-if="message.role === 'assistant' && message.responseType"
@@ -319,12 +332,12 @@
               show-word-limit
               resize="none"
               placeholder="描述故障，或继续回复上一步排查结果"
-              :disabled="answering || !activeConversation"
+              :disabled="answering || messageLoading || !activeConversation || !!pendingTurn"
               @keydown.enter.exact.prevent="submitQuestion"
             />
             <div class="composer-footer">
               <span>
-                {{ activeConversation ? 'Enter 发送，Shift + Enter 换行' : '请先创建或选择会话' }}
+                {{ pendingTurn ? '请先重试尚未完成的问题，或新建会话。' : (activeConversation ? 'Enter 发送，Shift + Enter 换行' : '请先创建或选择会话') }}
               </span>
               <el-button
                 type="primary"
@@ -397,6 +410,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { createAssistantTurnRequests, mergeAssistantTurnMessages } from '@/utils/assistantTurn'
 import {
   answerAiConversation,
   createAiConversation,
@@ -418,6 +432,11 @@ const conversations = ref([])
 const activeConversationId = ref()
 const messages = ref([])
 const question = ref('')
+const pendingTurns = reactive(new Map())
+const turnRequests = createAssistantTurnRequests({
+  send: answerAiConversation,
+  pendingTurns
+})
 const messageContainerRef = ref()
 const conversationDialogVisible = ref(false)
 const feedbackSubmittingIds = ref([])
@@ -456,10 +475,14 @@ const activeConversation = computed(() => {
   )
 })
 
+const pendingTurn = computed(() => pendingTurns.get(activeConversationId.value))
+
 const canSubmit = computed(() => {
   return Boolean(activeConversation.value)
     && question.value.trim().length >= 2
     && !answering.value
+    && !messageLoading.value
+    && !pendingTurn.value
 })
 
 async function loadKnowledgeBases() {
@@ -486,9 +509,7 @@ async function loadConversations() {
       activeConversationId.value = conversations.value[0]?.conversationId
     }
   } catch (error) {
-    conversations.value = []
-    activeConversationId.value = undefined
-    ElMessage.error('会话列表加载失败，请确认已执行第 009 号数据库脚本。')
+    ElMessage.error('会话列表刷新失败，已保留当前会话，请稍后重试。')
   } finally {
     conversationLoading.value = false
   }
@@ -504,15 +525,20 @@ async function loadMessages(conversationId) {
     const response = await listAiConversationMessages(conversationId)
     if (conversationId === activeConversationId.value) {
       messages.value = (response.data || []).map(hydrateHistoricalMessage)
+      turnRequests.reconcile(conversationId, messages.value)
+      restorePendingTurn(conversationId)
       await scrollToBottom()
     }
   } catch (error) {
     if (conversationId === activeConversationId.value) {
       messages.value = []
+      restorePendingTurn(conversationId)
     }
     ElMessage.error('会话消息加载失败，请稍后重试。')
   } finally {
-    messageLoading.value = false
+    if (conversationId === activeConversationId.value) {
+      messageLoading.value = false
+    }
   }
 }
 
@@ -545,6 +571,9 @@ async function selectConversation(conversation) {
 }
 
 function openConversationDialog() {
+  if (answering.value) {
+    return
+  }
   newConversationForm.knowledgeBaseId =
     activeConversation.value?.knowledgeBaseId
     || (knowledgeBases.value.length === 1
@@ -608,6 +637,9 @@ async function renameConversation(conversation) {
 }
 
 async function removeConversation(conversation) {
+  if (answering.value || messageLoading.value) {
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确定删除会话“${conversation.title}”吗？消息和引用将保留用于审计，但页面中不再显示。`,
@@ -619,6 +651,7 @@ async function removeConversation(conversation) {
       }
     )
     await deleteAiConversation(conversation.conversationId)
+    turnRequests.forget(conversation.conversationId)
     if (activeConversationId.value === conversation.conversationId) {
       activeConversationId.value = undefined
       messages.value = []
@@ -635,21 +668,6 @@ async function removeConversation(conversation) {
 
 function useExample(example) {
   question.value = example
-}
-
-function createTemporaryMessageId() {
-  return `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function createTurnId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID()
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {
-    const random = Math.floor(Math.random() * 16)
-    const digit = value === 'x' ? random : ((random & 0x3) | 0x8)
-    return digit.toString(16)
-  })
 }
 
 function responseTypeTag(responseType) {
@@ -671,9 +689,51 @@ async function scrollToBottom() {
   }
 }
 
+function appendPendingTurn(turn, failed = false) {
+  if (!messages.value.some(message => (
+    message.turnId === turn.turnId && message.role === 'user'
+  ))) {
+    messages.value.push({
+      messageId: `temp-user-${turn.turnId}`,
+      conversationId: turn.conversationId,
+      turnId: turn.turnId,
+      role: 'user',
+      content: turn.question
+    })
+  }
+  if (failed && !messages.value.some(message => (
+    message.turnId === turn.turnId && message.requestFailed
+  ))) {
+    messages.value.push({
+      messageId: `temp-failed-${turn.turnId}`,
+      conversationId: turn.conversationId,
+      turnId: turn.turnId,
+      role: 'assistant',
+      content: '本次回答尚未确认完成，请重试原问题。你也可以新建会话继续。',
+      requestFailed: true,
+      answered: false,
+      citations: []
+    })
+  }
+}
+
+function restorePendingTurn(conversationId) {
+  const turn = turnRequests.getPending(conversationId)
+  if (turn) {
+    appendPendingTurn(turn, true)
+  }
+}
+
 async function submitQuestion() {
+  if (answering.value || messageLoading.value) {
+    return
+  }
   if (!activeConversation.value) {
     ElMessage.warning('请先创建或选择会话。')
+    return
+  }
+  if (pendingTurn.value) {
+    ElMessage.warning('请先重试上一条尚未完成的问题。')
     return
   }
   const normalizedQuestion = question.value.trim()
@@ -681,66 +741,79 @@ async function submitQuestion() {
     ElMessage.warning('请输入至少 2 个字符的问题。')
     return
   }
-
-  const conversationId = activeConversationId.value
-  const turnId = createTurnId()
-  const temporaryUserMessage = {
-    messageId: createTemporaryMessageId(),
-    conversationId,
-    turnId,
-    role: 'user',
-    content: normalizedQuestion
-  }
-  messages.value.push(temporaryUserMessage)
+  const turn = turnRequests.prepare(activeConversationId.value, normalizedQuestion)
   question.value = ''
-  answering.value = true
-  await scrollToBottom()
+  await sendTurn(turn)
+}
 
+async function retryOriginalQuestion(message) {
+  if (answering.value || messageLoading.value) {
+    return
+  }
+  const turn = turnRequests.getPending(message.conversationId)
+  if (!turn || turn.turnId !== message.turnId) {
+    return
+  }
+  await sendTurn(turn)
+}
+
+async function sendTurn(turn) {
+  if (answering.value || messageLoading.value) {
+    return
+  }
+  answering.value = true
+  messages.value = messages.value.filter(message => !(
+    message.turnId === turn.turnId && message.requestFailed
+  ))
+  appendPendingTurn(turn)
   try {
-    const response = await answerAiConversation(conversationId, {
-      turnId,
-      question: normalizedQuestion
-    })
+    await scrollToBottom()
+    const response = await turnRequests.submit(turn)
     const data = response.data
-    temporaryUserMessage.messageId = data.userMessageId
-    messages.value.push({
-      messageId: data.assistantMessageId,
-      conversationId,
-      turnId: data.turnId || turnId,
-      role: 'assistant',
-      content: data.result.answer,
-      answered: data.result.answered,
-      refusalReason: data.result.refusalReason,
-      responseType: data.result.responseType,
-      diagnosticStatus: data.result.diagnosticStatus,
-      issueSummary: data.result.issueSummary,
-      attemptedSteps: data.result.attemptedSteps || [],
-      observations: data.result.observations || [],
-      nextQuestion: data.result.nextQuestion,
-      requiresUserReply: data.result.requiresUserReply,
-      requiresOnSiteService: data.result.requiresOnSiteService,
-      citations: data.result.citations || [],
-      modelName: data.result.modelName,
-      traceId: data.traceId,
-      feedbackType: '0'
-    })
+    if (!data?.result || !data.userMessageId || !data.assistantMessageId) {
+      throw new Error('回答结果不完整')
+    }
+    const completedMessages = [
+      {
+        messageId: data.userMessageId,
+        conversationId: turn.conversationId,
+        turnId: turn.turnId,
+        role: 'user',
+        content: turn.question
+      },
+      {
+        messageId: data.assistantMessageId,
+        conversationId: turn.conversationId,
+        turnId: turn.turnId,
+        role: 'assistant',
+        content: data.result.answer,
+        answered: data.result.answered,
+        refusalReason: data.result.refusalReason,
+        responseType: data.result.responseType,
+        diagnosticStatus: data.result.diagnosticStatus,
+        issueSummary: data.result.issueSummary,
+        attemptedSteps: data.result.attemptedSteps || [],
+        observations: data.result.observations || [],
+        nextQuestion: data.result.nextQuestion,
+        requiresUserReply: data.result.requiresUserReply,
+        requiresOnSiteService: data.result.requiresOnSiteService,
+        citations: data.result.citations || [],
+        modelName: data.result.modelName,
+        traceId: data.traceId,
+        feedbackType: '0'
+      }
+    ]
+    messages.value = mergeAssistantTurnMessages(messages.value, turn, completedMessages)
+    turnRequests.complete(turn)
     const current = conversations.value.find(
-      item => item.conversationId === conversationId
+      item => item.conversationId === turn.conversationId
     )
     if (current) {
       current.title = data.conversationTitle
     }
     await loadConversations()
   } catch (error) {
-    messages.value.push({
-      messageId: createTemporaryMessageId(),
-      conversationId,
-      role: 'assistant',
-      content: '本次分析失败，请检查文档索引、FastAPI、PostgreSQL记忆、Milvus和大模型配置后重试。',
-      requestFailed: true,
-      answered: false,
-      citations: []
-    })
+    appendPendingTurn(turn, true)
   } finally {
     answering.value = false
     await scrollToBottom()
@@ -1315,5 +1388,8 @@ html.dark .scope-panel {
     opacity: 1;
     transform: none;
   }
+}
+.retry-actions {
+  margin-top: 12px;
 }
 </style>

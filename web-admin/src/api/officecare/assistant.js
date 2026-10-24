@@ -41,6 +41,7 @@ export function listAiConversationMessages(conversationId) {
 export function answerAiConversation(conversationId, data) {
   return request({
     url: `/officecare/ai/conversations/${conversationId}/answer`,
+    headers: { repeatSubmit: false },
     method: 'post',
     data,
     timeout: AI_ANSWER_TIMEOUT

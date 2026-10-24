@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.OngoingStubbing;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.officecare.client.OfficeCareAiDocumentClient;
 import com.ruoyi.officecare.config.OfficeCareAiProperties;
@@ -28,6 +29,14 @@ import com.ruoyi.officecare.service.impl.OcAiAssistantServiceImpl;
 import com.ruoyi.officecare.service.impl.OcAiTurnExecutionService;
 import com.ruoyi.officecare.service.impl.OcAiTurnPersistenceService;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -273,6 +282,121 @@ class OcAiAssistantServiceImplTest
         assertEquals("本轮请求ID已用于其他问题", exception.getMessage());
     }
 
+    @Test
+    void shouldFinishSavedResultWithoutCallingAgentAgain() throws Exception
+    {
+        RecoveryFixture fixture = new RecoveryFixture();
+        fixture.returnClaim(OcAiTurnExecutionService.ClaimResult.finish(
+            fixture.execution));
+
+        OcAiConversationAnswerResponse response = fixture.answer();
+
+        assertEquals(101L, response.getUserMessageId());
+        assertEquals(102L, response.getAssistantMessageId());
+        assertEquals("DIAGNOSTIC_STEP", response.getResult().getResponseType());
+        verifyNoInteractions(fixture.aiClient);
+    }
+
+    @Test
+    void shouldRetryOnlyPersistenceAfterSavingResultFails() throws Exception
+    {
+        RecoveryFixture fixture = new RecoveryFixture();
+        fixture.returnClaim(OcAiTurnExecutionService.ClaimResult.finish(
+            fixture.execution));
+        fixture.persistenceStubbing()
+            .thenThrow(new IllegalStateException("test persistence unavailable"))
+            .thenReturn(new OcAiTurnPersistenceService.PersistResult(101L, 102L));
+
+        assertThrows(IllegalStateException.class, fixture::answer);
+        verify(fixture.executionService).resetToReady(
+            eq(200L), anyString(), anyString(), anyString());
+
+        OcAiConversationAnswerResponse response = fixture.answer();
+        assertEquals(fixture.turnId, response.getTurnId());
+        assertEquals(102L, response.getAssistantMessageId());
+        verifyNoInteractions(fixture.aiClient);
+    }
+
+    @Test
+    void shouldReplayExecutionSnapshotWithoutAnotherWrite() throws Exception
+    {
+        RecoveryFixture fixture = new RecoveryFixture();
+        fixture.execution.setStatus(OcAiTurnExecutionService.STATUS_SUCCEEDED);
+        fixture.execution.setUserMessageId(101L);
+        fixture.execution.setAssistantMessageId(102L);
+        fixture.returnClaim(OcAiTurnExecutionService.ClaimResult.replay(
+            fixture.execution));
+
+        OcAiConversationAnswerResponse response = fixture.answer();
+
+        assertEquals(101L, response.getUserMessageId());
+        assertEquals(102L, response.getAssistantMessageId());
+        verifyNoInteractions(fixture.aiClient, fixture.persistenceService);
+    }
+
+    private static class RecoveryFixture
+    {
+        private final String turnId = "e1feae17-65b9-46ad-b3dd-356676686a41";
+        private final OcAiTurnExecution execution = new OcAiTurnExecution();
+        private final OcAiTurnExecutionService executionService =
+            mock(OcAiTurnExecutionService.class);
+        private final OcAiTurnPersistenceService persistenceService =
+            mock(OcAiTurnPersistenceService.class);
+        private final OfficeCareAiDocumentClient aiClient =
+            mock(OfficeCareAiDocumentClient.class);
+        private final OcAiAssistantServiceImpl service;
+
+        RecoveryFixture() throws Exception
+        {
+            ObjectMapper objectMapper = new ObjectMapper();
+            execution.setExecutionId(200L);
+            execution.setTraceId("assistant-test-recovery");
+            execution.setStatus(OcAiTurnExecutionService.STATUS_PERSISTING);
+            execution.setResultPayload(objectMapper.writeValueAsString(
+                agentResponse()));
+            OcAiConversationMapper conversations = mock(
+                OcAiConversationMapper.class);
+            when(conversations.selectConversationByIdAndUserId(15L, 7L))
+                .thenReturn(conversation());
+            service = new OcAiAssistantServiceImpl(
+                mock(OcKnowledgeBaseMapper.class),
+                mock(OcDocumentMapper.class),
+                conversations,
+                mock(OcAiMessageMapper.class),
+                mock(OcAiMessageCitationMapper.class),
+                executionService,
+                persistenceService,
+                aiClient,
+                new OfficeCareAiProperties(),
+                objectMapper);
+            persistenceStubbing().thenReturn(
+                new OcAiTurnPersistenceService.PersistResult(101L, 102L));
+        }
+
+        void returnClaim(OcAiTurnExecutionService.ClaimResult claim)
+        {
+            when(executionService.claim(
+                anyLong(), anyString(), anyLong(),
+                anyString(), anyString(), anyString())).thenReturn(claim);
+        }
+
+        OngoingStubbing<OcAiTurnPersistenceService.PersistResult> persistenceStubbing()
+        {
+            return when(persistenceService.persistTurn(
+                any(), anyString(), anyString(), anyString(),
+                eq(7L), eq("admin"), anyString(), anyString(),
+                any(), eq(200L), anyString()));
+        }
+
+        OcAiConversationAnswerResponse answer()
+        {
+            OcAiConversationQuestionRequest request =
+                new OcAiConversationQuestionRequest();
+            request.setTurnId(turnId);
+            request.setQuestion("大约94毫米");
+            return service.answerInConversation(15L, request, 7L, "admin");
+        }
+    }
     private static OcKnowledgeBase knowledgeBase()
     {
         OcKnowledgeBase knowledgeBase = new OcKnowledgeBase();
