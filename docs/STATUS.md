@@ -2,18 +2,12 @@
 
 ## 现在
 
-阶段 02：AI 单轮可靠性与跨存储一致性，状态：开发中，**待用户验收**。
-
-- F02 已修复：同一 `turnId` 在调用 Agent 前通过 `oc_ai_turn_execution` 唯一键原子占用；并发 2/5/10 路全部成功，FastAPI 单轮调用 1 次，模型调用等于单轮基线 2 次，消息只落 1 对，重复请求返回同一 `assistantMessageId`。
-- F01 已修复：`answerInConversation()` 不再包在 MySQL 事务内；Agent 结果先存 `result_payload`，消息、引用、会话状态和执行状态在同一短事务提交；推理期间采样未观察到长事务。
-- 故障验证：MySQL 落库失败后重试只补落库（模型调用 0 次）；Java 超时但 PG checkpoint 已保存时，执行状态为 `FAILED`，同 `turnId` 重试 0.04 s 命中缓存并补齐消息；过期租约可被接管。
-- 回归：Java 98 个测试、Python 159 个测试全部通过。验证环境和脚本见阶段文档。
-- 改动未提交、未推送、未合并，位于 worktree `feat/02-ai-turn-reliability`（基线 `5330b9e`）。
-- 阶段 01 记录保持原样：P01-05 当时为 FAIL，P01-03 用户决定跳过；阶段 01 是否重新验收由用户决定。
+当前回到阶段 02：AI 单轮可靠性与跨存储一致性，状态：开发中，待用户验收。2026-10-24 已完成 GitHub 基线核对与相关单元测试自检；提交事实、工作区位置及本轮测试范围统一见[阶段 02 的基线复核](stages/02-ai-turn-reliability.md#2026-10-24-基线复核)。阶段 03 的已有未提交改动保留，真实评测仍未补验，本轮不继续开发；阶段 01 的历史结论与用户跳过部署验收的决定保持有效。用户已要求将本轮基线文档提交并推送到 GitHub `main`；文档交付记录见阶段 02 结果末尾。
 
 ## 阶段
 
 | 阶段 | 状态 | 设计文档 | 验收 |
 |---|---|---|---|
-| 01：工程基线审计与验收 | 开发中 | [01-engineering-baseline-audit](stages/01-engineering-baseline-audit.md) | 暂不通过（P01-05 已由阶段 02 修复，待复核；P01-03 用户跳过） |
-| 02：AI 单轮可靠性与跨存储一致性 | 开发中 | [02-ai-turn-reliability](stages/02-ai-turn-reliability.md) | 待用户验收（F01/F02 自检通过） |
+| 01：工程基线审计与验收 | 开发中 | [01-engineering-baseline-audit](stages/01-engineering-baseline-audit.md) | 原结论暂不通过；修复后的复核待用户决定，P01-03 用户跳过 |
+| 02：AI 单轮可靠性与跨存储一致性 | 开发中 | [02-ai-turn-reliability](stages/02-ai-turn-reliability.md) | 实现已有线上提交；本轮相关单元测试通过，待用户验收 |
+| 03：RAG 检索质量升级（已有改动保留） | 开发中 | 未提交文档入口见[工作区清单](stages/02-ai-turn-reliability.md#2026-10-24-基线复核) | 历史单测通过；真实评测未完成，当前不继续开发 |

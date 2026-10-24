@@ -9,3 +9,5 @@
 - 2026-10-17：F01 移除 `answerInConversation()` 方法级事务，Agent 调用前不开启事务；Agent 结构化结果先写入 `result_payload`，消息、引用、会话状态与执行状态由 `OcAiTurnPersistenceService` 在独立短事务内提交。失败时执行状态回到 `READY`，重试只补落库，不重复推理。
 - 2026-10-17：`officecare.ai.turn-lease` 默认 360s，必须大于 `agent-read-timeout` 的 240s；租约过短会让正常推理被其他实例接管。`turn-wait-timeout` 默认 60s，只影响并发重复请求的等待时长，不改变最终结果。
 - 2026-10-17：Python 只做进程内 `thread_id + turnId` 的 `asyncio.Lock`，用于挡住同进程并发；不把它当作跨实例幂等方案。阶段 02 的写链路验证只使用 `*_test` 资源，未碰开发库和开发 Milvus 集合。
+- 2026-10-24：后续优化仅使用 GitHub 远端基线，主目录与已有 worktree 的未提交改动保留；当前先收口阶段 02 的验收，阶段 03 的已有改动保持待验收且不继续开发。提交事实与用户验收分别记录，完整核对结果见[阶段 02 基线复核](stages/02-ai-turn-reliability.md#2026-10-24-基线复核)。
+- 2026-10-24：按用户明确要求，本轮基线文档使用新指定的仓库级邮箱提交并推送到 GitHub `main`；提交范围及自检记录见[阶段 02 文档交付](stages/02-ai-turn-reliability.md#文档提交与推送)，阶段验收状态仍按实际结果记录。

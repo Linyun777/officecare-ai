@@ -2,7 +2,7 @@
 
 ## 目标与用户看到的效果
 
-- 同一会话重复提交同一个 `turnId` 时，模型只推理一次，重复请求等待并复用同一结果；同一个 `turnId` 用在其他问题上直接返回冲突。
+- 同一会话重复提交同一个 `turnId` 时，Agent 单轮只执行一次，重复请求等待并复用同一结果；同一个 `turnId` 用在其他问题上直接返回冲突。单轮内部的模型调用次数按实际流程统计。
 - 用户提问期间 MySQL 不再长时间持有事务；Agent 推理成功但消息落库失败时，用同一个 `turnId` 重试只补落库，不重复调用模型。
 - Java 调用 FastAPI 超时、但 PostgreSQL 已保存 checkpoint 时，MySQL 保留可恢复的执行状态，重试后消息可补齐。
 
@@ -81,9 +81,9 @@ PROCESSING -> READY -> PERSISTING -> SUCCEEDED
 
 - 新增：`016_officecare_ai_turn_execution.sql`、`OcAiTurnExecution.java`、`OcAiTurnExecutionMapper.java`、`OcAiTurnExecutionMapper.xml`、`OcAiTurnExecutionService.java`、`OcAiTurnPersistenceService.java`、`OcAiTurnExecutionServiceTest.java`。
 - 修改：`OcAiAssistantServiceImpl.java`、`OfficeCareAiProperties.java`、`OcAiAssistantServiceImplTest.java`、`assistant_agent.py`、`test_assistant_agent.py`、`application-dev.example.yml`、`deploy/production/docker-compose.yml`。
-- 状态提交：未提交、未推送、未合并；改动位于 worktree `D:/Code/shizhan/officecare-ai-accept-01` 的 `feat/02-ai-turn-reliability` 分支，基线 `5330b9e`。
+- 实现提交：`0e675ff`，原实现基线 `5330b9e`。2026-10-24 已在线核实该提交位于 GitHub `main`，原实现工作区干净；用户验收仍未完成。当前基线和工作区入口见本文末尾“2026-10-24 基线复核”。
 
-### 实际运行的测试与结果
+### 2026-10-17 实际运行的测试与结果
 
 | 项目 | 命令 | 结果 |
 |---|---|---|
@@ -109,7 +109,7 @@ F02 对照：修复前 2/5/10 路并发分别产生 4/10/20 次模型调用且�
 - `awaitTurn` 在持有者租约未过期时最多等待 `turn-wait-timeout`；租约过期后的接管由重试触发，未在等待循环内主动抢占。
 - P01-03 部署验收仍按用户决定跳过，不计入本阶段。
 - 前端重复点击的真实浏览器行为未验证；服务端幂等不依赖前端。
-- 本阶段未提交、未推送、未合并，等待用户验收后再决定提交范围。
+- 实现的提交状态见本节“交付内容”；代码已进入 GitHub `main` 不等同于用户已验收。本轮基线文档的交付授权与范围见末尾“文档提交与推送”。
 
 ### 源码入口
 
@@ -119,3 +119,51 @@ F02 对照：修复前 2/5/10 路并发分别产生 4/10/20 次模型调用且�
 - `java-server/ruoyi-officecare/src/main/resources/mapper/officecare/OcAiTurnExecutionMapper.xml`
 - `java-server/sql/officecare/016_officecare_ai_turn_execution.sql`
 - `ai-service/app/services/assistant_agent.py`
+
+### 2026-10-24 基线复核
+
+本轮只整理工程基线与验收事实，并对已提交的阶段 02 实现做针对性自检；未新增产品功能，未改生产代码、依赖、锁文件、数据库迁移、Milvus Schema 或全局配置。
+
+#### 远端与工作区
+
+- 实际执行 `git ls-remote github refs/heads/main`，确认 GitHub `main` 为 `0e675ff40527e733cbf18c20a7bc111ab0f2612e`；这与本地 `github/main` 一致。
+- 主目录的 `master` 与 GitHub `main` 无共同祖先（`git merge-base master github/main` 退出码 1）。保留原分支及未提交改动，不用旧主目录覆盖 GitHub 版本。
+- 后续协作仅使用 `github` 远端；基线核对时未改远端配置、未提交、未推送、未合并，后续文档交付见本节末尾。原 `origin` 仍指向 Gitee，不作为后续推送目标。
+
+| 工作区 | HEAD / 分支 | 本轮开始时状态及用途 |
+|---|---|---|
+| `D:/Code/shizhan/officecare-ai` | `1a8affb` / `master` | 旧主目录；保留 `.gitignore`、未跟踪文档和三份已暂存的文档删除 |
+| `D:/Code/shizhan/officecare-ai-accept-01` | `0e675ff` / `feat/02-ai-turn-reliability` | 干净；阶段 02 原实现工作区 |
+| `D:/Code/shizhan/officecare-ai-rag-03` | `0e675ff` / `feat/03-rag-quality` | RAG 源码、测试和状态文档有未提交修改；设计在该工作区的 `docs/stages/03-rag-quality-upgrade.md`，真实评测未完成 |
+| `D:/Code/shizhan/officecare-ai-audit-01` | `fb73f81` / detached HEAD | 干净；保留历史审计快照 |
+| `C:/Users/Administrator/.codex/worktrees/212b/officecare-ai` | `e4b525e` / detached HEAD | 有旧实现的未提交改动，本轮保留 |
+| `C:/Users/Administrator/.codex/worktrees/5ef6/officecare-ai` | `beb5b89` / detached HEAD | 有旧文档的未提交改动，本轮保留 |
+| `C:/Users/Administrator/.codex/worktrees/baseline-alignment/officecare-ai` | `0e675ff` / `codex/baseline-alignment` | 本轮独立工作区；只修改本阶段文档、`docs/STATUS.md` 和 `docs/DECISIONS.md` |
+
+#### 本轮实际运行的自检
+
+| 项目 | 实际命令或设置 | 结果 |
+|---|---|---|
+| GitHub 基线 | `git ls-remote github refs/heads/main` | PASS，远端提交与上表基线一致 |
+| Java 对话与执行状态 | `mvn -o -pl ruoyi-officecare -am "-Dtest=OcAiAssistantServiceImplTest,OcAiTurnExecutionServiceTest" "-Dsurefire.failIfNoSpecifiedTests=false" test` | 10 tests，0 failures，0 errors，0 skipped，BUILD SUCCESS |
+| Python 助手 | 使用主目录现有 `.venv/Scripts/python.exe` 执行 `tests/test_assistant_agent.py`，参数 `-vv -s --assert=plain -p pytest_asyncio.plugin -p no:cacheprovider` | 11 passed，0.39s |
+
+Python 自检没有安装或变更依赖：仅在测试进程设置 `LANGSMITH_TRACING=false`、`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`PYTHONDONTWRITEBYTECODE=1`，显式加载现有 asyncio 插件，并把 `tempfile.tempdir` 指向本工作区已忽略的 `notes/baseline-temp`。Java 使用离线模式；两组测试通过 mock、fake 与内存检查点隔离外部业务依赖。
+
+首次执行未进入有效测试：沙箱内 Python 报 `ImportError: DLL load failed while importing _ssl`，Java 编译产物报 `could not create parent directories`；切换运行权限后 Python 默认临时目录报 `No usable temporary directory found`。指定临时目录的一次尝试长期无输出后已停止，仅终止了本次测试进程；上表是隔离进程设置后的最终实际结果，不把环境失败记为通过。
+
+#### 验收边界与后续顺序
+
+- 本轮通过的是 GitHub 基线核对和 21 个相关单元测试，不是三端全量回归、真实并发或端到端验收；2026-10-17 的 98 / 159 测试与故障注入记录保留其原日期。
+- 未重跑多 JVM 并发、同会话不同 `turnId` 并发、真实超时补偿、浏览器失败恢复或真实中断；未验证基础设施当前是否可达。历史集成结果不等同于本轮重验。
+- 当前先收口阶段 02 的验收，用户确认后再处理阶段 03 的真实评测；前端原请求重试、草稿基础版本保护属于后续设计范围，本轮未开发。
+- P01-03 部署验收仍按用户决定跳过；本轮未启动服务、未连接业务数据库、未修改既有 RAG 工作区。
+- 基线中存在两个以 `016_` 开头的 SQL 脚本。本轮只记录，不重命名已发布迁移，也不执行数据库变更；后续迁移管理在对应阶段设计中处理。
+
+#### 文档提交与推送
+
+- 2026-10-24：用户明确要求继续工作，并将本轮已完成的基线文档提交、推送到 GitHub，以核对新提交邮箱的贡献归属。
+- 提交范围仅为 `docs/STATUS.md`、`docs/DECISIONS.md` 和本文；提交标题为 `docs: align GitHub baseline and record reliability checks`，具体 SHA 与远端落点以 Git 日志和推送结果为准。
+- 新提交使用用户指定的仓库级邮箱；全局 Git 配置和已有提交历史保持原样。
+- 推送目标为 `github` 的 `main`，按普通快进更新执行；原主目录及既有 RAG 工作区保持各自的未提交改动。
+- 文档差异、相对链接和提交范围已检查；本次交付未重复运行 Java/Python 测试，实际自检范围仍以上表为准。阶段验收状态以真实验收结果记录。
