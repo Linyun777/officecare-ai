@@ -303,9 +303,9 @@ def is_applicable_to_model(
     if not selected_models:
         return True
 
-    declared_models = declared_model_codes(text, heading=heading)
-    if declared_models:
-        return not selected_models.isdisjoint(declared_models)
+    scoped_models = section_model_codes(text, heading=heading)
+    if scoped_models:
+        return not selected_models.isdisjoint(scoped_models)
 
     normalized_text = unicodedata.normalize("NFKC", f"{heading}\n{text}")
     selected_families = {_model_family(model) for model in selected_models}

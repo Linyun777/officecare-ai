@@ -21,6 +21,7 @@ def _entity(
     text: str,
     page_number: int = 8,
     heading: str = "卡纸处理",
+    shared: bool = False,
 ) -> dict:
     return {
         "knowledge_base_id": 1,
@@ -33,7 +34,7 @@ def _entity(
         "page_number": page_number,
         "chunk_index": chunk_index,
         "heading": heading,
-        "text": text,
+        "text": text + ("\n适用于所有型号" if shared else ""),
     }
 
 
@@ -105,7 +106,7 @@ def test_retriever_applies_java_approved_versions_and_score_threshold() -> None:
     provider = FakeEmbeddingProvider()
     client = FakeMilvusClient(
         search_hits=[
-            _hit(0.91, _entity(chunk_index=2, text="关闭电源，然后取出卡纸。")),
+            _hit(0.91, _entity(chunk_index=2, text="关闭电源，然后取出卡纸。", shared=True)),
             _hit(0.40, _entity(chunk_index=3, text="这一条低于阈值。")),
         ]
     )
@@ -153,7 +154,10 @@ def test_retriever_uses_navigation_hit_to_add_neighboring_body_chunks() -> None:
     )
     client = FakeMilvusClient(
         search_hits=[_hit(0.90, navigation)],
-        query_records=[navigation, body_one, body_two],
+        query_records=[
+            _entity(chunk_index=9, text="适用于所有型号", heading="相关信息"),
+            navigation, body_one, body_two,
+        ],
     )
     retriever = MilvusEvidenceRetriever(
         _settings(rag_lexical_score_threshold=1.0),
@@ -192,7 +196,11 @@ def test_retriever_recovers_exact_numeric_evidence_with_lexical_scan() -> None:
             _hit(0.90 - index * 0.01, entity)
             for index, entity in enumerate(unrelated_hits)
         ],
-        query_records=[*unrelated_hits, exact_evidence],
+        query_records=[
+            *unrelated_hits,
+            _entity(chunk_index=19, text="适用于所有型号"),
+            exact_evidence,
+        ],
     )
     retriever = MilvusEvidenceRetriever(
         _settings(),
@@ -214,7 +222,7 @@ def test_retriever_falls_back_to_dense_when_lexical_scan_fails() -> None:
 
     client = QueryFailureClient(
         search_hits=[
-            _hit(0.88, _entity(chunk_index=4, text="按步骤取出卡住的纸张。"))
+            _hit(0.88, _entity(chunk_index=4, text="按步骤取出卡住的纸张。", shared=True))
         ]
     )
     retriever = MilvusEvidenceRetriever(
@@ -245,6 +253,7 @@ def test_retriever_filters_explicit_other_model_before_hybrid_ranking() -> None:
     shared = _entity(
         chunk_index=32,
         text="设备的默认密码位于背面带有Pwd字样的标签上。",
+        shared=True,
         page_number=1,
         heading="安全网络访问",
     )
@@ -381,6 +390,7 @@ def test_retriever_filters_chunk_inheriting_other_model_section_scope() -> None:
     correct = _entity(
         chunk_index=1400,
         text="内存已满时，请降低分辨率或清除内存。",
+        shared=True,
         page_number=500,
         heading="错误和维护信息",
     )
@@ -423,11 +433,13 @@ def test_retriever_filters_chunk_after_bare_group_header() -> None:
     correct = _entity(
         chunk_index=1092,
         text="[内存已满] 设备的内存已满。降低分辨率。清除内存中的传真。",
+        shared=True,
         page_number=378,
         heading="错误和维护信息",
     )
     client = FakeMilvusClient(
         search_hits=[
+            _hit(0.90, other_model_table),
             _hit(0.80, other_model_continuation),
             _hit(0.70, correct),
         ],
@@ -442,6 +454,7 @@ def test_retriever_filters_chunk_after_bare_group_header() -> None:
     evidence = retriever.search(_request("设备提示内存已满时应该如何处理？"))
 
     chunk_indexes = [item.document.metadata["chunk_index"] for item in evidence]
+    assert 1095 not in chunk_indexes
     assert 1096 not in chunk_indexes
     assert 1092 in chunk_indexes
 
@@ -460,6 +473,7 @@ def test_retriever_keeps_chunk_after_multi_model_section_label() -> None:
     shared = _entity(
         chunk_index=1092,
         text="内存已满时，请降低分辨率或清除内存。",
+        shared=True,
         page_number=378,
         heading="错误和维护信息",
     )
@@ -478,3 +492,42 @@ def test_retriever_keeps_chunk_after_multi_model_section_label() -> None:
     assert 1092 in [
         item.document.metadata["chunk_index"] for item in evidence
     ]
+
+
+def test_retriever_does_not_treat_unresolved_dense_hit_as_shared():
+    class QueryFailureClient(FakeMilvusClient):
+        def query(self, **kwargs):
+            raise RuntimeError("metadata unavailable")
+
+    client = QueryFailureClient(
+        search_hits=[_hit(0.99, _entity(chunk_index=1097, text="无法打印时关闭电源。"))],
+    )
+    retriever = MilvusEvidenceRetriever(
+        _settings(), FakeEmbeddingProvider(), client_factory=lambda: client,
+    )
+    assert retriever.search(_request()) == []
+
+
+def test_retriever_supplements_scope_context_with_the_original_whitelist():
+    class SupplementClient(FakeMilvusClient):
+        def __init__(self):
+            super().__init__(search_hits=[_hit(0.99, _entity(chunk_index=3, text="取出卡纸"))])
+            self.queries = []
+
+        def query(self, **kwargs):
+            self.queries.append(kwargs)
+            if len(self.queries) == 1:
+                return []
+            return [
+                _entity(chunk_index=2, text="相关型号: MFC-7895DW"),
+                _entity(chunk_index=3, text="取出卡纸"),
+            ]
+
+    client = SupplementClient()
+    retriever = MilvusEvidenceRetriever(
+        _settings(), FakeEmbeddingProvider(), client_factory=lambda: client,
+    )
+    assert retriever.search(_request()) == []
+    assert len(client.queries) == 2
+    assert client.search_arguments["filter"] in client.queries[-1]["filter"]
+    assert "document_version_id == 40" in client.queries[-1]["filter"]

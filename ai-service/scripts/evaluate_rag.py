@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
@@ -10,12 +11,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.core.config import get_settings
-from app.evaluation.models import EvaluationMode, EvaluationScope
+from app.evaluation.models import EvaluationMode, EvaluationScope, EvaluationProvenance
 from app.evaluation.reporting import write_evaluation_report
 from app.evaluation.runner import (
     EvaluationRunner,
     HttpRagEvaluationClient,
     load_evaluation_cases,
+    validate_dataset_splits,
+    validate_evaluation_run,
 )
 
 
@@ -36,7 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         version_ids = _positive_int_list(args.document_version_ids)
         cases = load_evaluation_cases(args.dataset.resolve())
+        cases = [case for case in cases if case.split == args.split]
         cases = _filter_cases(cases, tags=args.tag, limit=args.limit)
+        provenance = (
+            EvaluationProvenance.model_validate(json.loads(args.run_manifest.read_text(encoding="utf-8")))
+            if args.run_manifest else None
+        )
+        if args.split == "holdout":
+            if not args.development_dataset:
+                raise ValueError("holdout requires --development-dataset for task overlap checks")
+            development = load_evaluation_cases(args.development_dataset)
+            validate_dataset_splits(development, cases)
         if not cases:
             parser.error("筛选后没有可执行的评测用例。")
         scope = EvaluationScope(
@@ -49,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             top_k=args.top_k,
             score_threshold=args.score_threshold,
         )
+        validate_evaluation_run(cases, scope, str(args.dataset.resolve()), provenance)
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -63,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             cases,
             modes=modes,
             dataset_path=str(args.dataset.resolve()),
+            provenance=provenance,
         )
     finally:
         client.close()
@@ -73,9 +88,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"评测用例：{len(cases)}")
     for summary in report.summaries:
+        scored_cases = summary.positive_cases + summary.negative_cases
         print(
-            f"{summary.mode.value}: {summary.passed}/{summary.cases} "
-            f"通过，passRate={summary.pass_rate:.1%}，"
+            f"{summary.mode.value}: {summary.passed}/{scored_cases} "
+            f"规则通过（总题数={summary.cases}，"
+            f"未评分={summary.cases - scored_cases}），"
+            f"passRate={summary.pass_rate:.1%}，"
             f"P95={summary.p95_latency_ms:.1f}ms"
         )
     print(f"JSON 报告：{json_path}")
@@ -94,6 +112,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description="运行 OfficeCare RAG 固定数据集评测并生成 JSON/Markdown 报告。"
     )
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--split", choices=("development", "holdout"), default="development")
+    parser.add_argument("--run-manifest", type=Path)
+    parser.add_argument("--development-dataset", type=Path)
     parser.add_argument(
         "--mode",
         choices=("retrieval", "answer", "both"),
@@ -144,7 +165,7 @@ def _ratio(raw: str) -> float:
         value = float(raw)
     except ValueError as exc:
         raise argparse.ArgumentTypeError("必须是 0 到 1 之间的小数。") from exc
-    if value < 0 or value > 1:
+    if not 0 <= value <= 1:
         raise argparse.ArgumentTypeError("必须是 0 到 1 之间的小数。")
     return value
 

@@ -4,6 +4,8 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 import json
 import math
+import re
+import hashlib
 from pathlib import Path
 from time import perf_counter
 from typing import Protocol
@@ -18,6 +20,7 @@ from app.evaluation.models import (
     EvaluationModeSummary,
     EvaluationObservation,
     EvaluationReport,
+    EvaluationProvenance,
     EvaluationScope,
     EvaluationSource,
     RelevantSourceRule,
@@ -130,7 +133,9 @@ class EvaluationRunner:
         *,
         modes: Sequence[EvaluationMode],
         dataset_path: str,
+        provenance: EvaluationProvenance | None = None,
     ) -> EvaluationReport:
+        validate_evaluation_run(cases, self._scope, dataset_path, provenance)
         observations: list[EvaluationObservation] = []
         for case in cases:
             request = self._scope.request_for(case)
@@ -139,6 +144,7 @@ class EvaluationRunner:
         return EvaluationReport(
             generated_at=datetime.now(timezone.utc),
             dataset_path=dataset_path,
+            provenance=provenance,
             scope=self._scope,
             summaries=[
                 summarize_mode(mode, observations)
@@ -153,6 +159,8 @@ class EvaluationRunner:
         request: RagAnswerRequest,
         mode: EvaluationMode,
     ) -> EvaluationObservation:
+        if case.annotation_status == "needs_review":
+            return _review_observation(case, mode)
         started = perf_counter()
         try:
             if mode == EvaluationMode.RETRIEVAL:
@@ -227,6 +235,11 @@ def evaluate_retrieval(
     checks = {
         "retrievalHit": actual_hit == case.expected_retrieval_hit,
     }
+    if case.forbidden_sources:
+        checks["noForbiddenSources"] = not any(
+            _is_relevant(citation, case.forbidden_sources)
+            for citation in response.evidence
+        )
     first_rank = relevant_ranks[0] if relevant_ranks else None
     noise_rate = None
     if case.expected_retrieval_hit:
@@ -237,6 +250,8 @@ def evaluate_retrieval(
         )
     return EvaluationObservation(
         case_id=case.case_id,
+        annotation_status=case.annotation_status,
+        split=case.split,
         mode=EvaluationMode.RETRIEVAL,
         tags=case.tags,
         passed=all(checks.values()),
@@ -248,7 +263,7 @@ def evaluate_retrieval(
         blocked_reason=response.blocked_reason,
         first_relevant_rank=first_rank,
         reciprocal_rank=(round(1.0 / first_rank, 6) if first_rank else 0.0),
-        recall_at_k=(1.0 if first_rank else 0.0)
+        hit_at_k=(1.0 if first_rank else 0.0)
         if case.expected_retrieval_hit
         else None,
         noise_rate=round(noise_rate, 6) if noise_rate is not None else None,
@@ -270,13 +285,12 @@ def evaluate_answer(
         for citation, is_relevant in zip(response.citations, relevance)
         if is_relevant
     ]
-    normalized_answer = _normalize(response.answer)
     term_groups_ok = all(
-        any(_normalize(term) in normalized_answer for term in group)
+        any(_affirmative_term_present(response.answer, term) for term in group)
         for group in case.required_answer_term_groups
     )
     forbidden_terms_ok = not any(
-        _normalize(term) in normalized_answer
+        _affirmative_term_present(response.answer, term)
         for term in case.forbidden_answer_terms
     )
     checks = {
@@ -296,9 +310,27 @@ def evaluate_answer(
     else:
         checks["noCitationsOnRefusal"] = not response.citations
 
+    review_reasons = []
+    if case.dataset_version != "v1":
+        checks["requiredAnswerPatterns"] = _answer_patterns_present(
+            response.answer, case.required_answer_patterns,
+        )
+        checks["noForbiddenSources"] = not any(
+            _is_relevant(citation, case.forbidden_sources)
+            for citation in response.citations
+        )
+        if case.annotation_status == "verified" and any(
+            not relevant and not _is_relevant(citation, case.forbidden_sources)
+            for citation, relevant in zip(response.citations, relevance)
+        ):
+            review_reasons.append("unannotated_citation_requires_review")
+            checks["citationReviewComplete"] = False
+
     first_rank = min(relevant_ranks) if relevant_ranks else None
     return EvaluationObservation(
         case_id=case.case_id,
+        annotation_status=case.annotation_status,
+        split=case.split,
         mode=EvaluationMode.ANSWER,
         tags=case.tags,
         passed=all(checks.values()),
@@ -309,6 +341,8 @@ def evaluate_answer(
         retrieved_count=response.retrieved_count,
         answered=response.answered,
         answer=response.answer[:4000],
+        review_required=bool(review_reasons),
+        review_reasons=review_reasons,
         first_relevant_rank=first_rank,
         reciprocal_rank=(round(1.0 / first_rank, 6) if first_rank else 0.0),
         citation_hit=citation_hit,
@@ -321,9 +355,10 @@ def summarize_mode(
     observations: Iterable[EvaluationObservation],
 ) -> EvaluationModeSummary:
     selected = [item for item in observations if item.mode == mode]
-    latencies = [item.latency_ms for item in selected]
-    recall_values = [
-        item.recall_at_k for item in selected if item.recall_at_k is not None
+    eligible = [item for item in selected if item.annotation_status != "needs_review"]
+    latencies = [item.latency_ms for item in eligible]
+    hit_values = [
+        item.hit_at_k for item in selected if item.hit_at_k is not None
     ]
     reciprocal_values = [
         item.reciprocal_rank
@@ -333,8 +368,8 @@ def summarize_mode(
     noise_values = [
         item.noise_rate for item in selected if item.noise_rate is not None
     ]
-    positive_answers = [item for item in selected if item.expected_answered]
-    refusal_answers = [item for item in selected if not item.expected_answered]
+    positive_answers = [item for item in eligible if item.expected_answered]
+    refusal_answers = [item for item in eligible if not item.expected_answered]
     citation_values = [
         item.citation_hit
         for item in positive_answers
@@ -344,13 +379,26 @@ def summarize_mode(
     return EvaluationModeSummary(
         mode=mode,
         cases=len(selected),
+        positive_cases=len(positive_answers),
+        negative_cases=len(refusal_answers),
+        unreviewed_cases=sum(item.annotation_status != "verified" for item in selected),
+        pending_review_cases=sum(item.review_required for item in selected),
+        annotation_coverage=_ratio(sum(item.annotation_status == "verified" for item in selected), len(selected)),
+        execution_success_rate=_ratio(
+            sum(item.error_code is None for item in eligible),
+            len(eligible),
+        ),
+        positive_rule_pass_rate=(
+            _ratio(sum(item.passed for item in positive_answers), len(positive_answers))
+            if positive_answers else None
+        ),
         passed=sum(item.passed for item in selected),
-        pass_rate=_ratio(sum(item.passed for item in selected), len(selected)),
+        pass_rate=_ratio(sum(item.passed for item in eligible), len(eligible)),
         errors=sum(item.error_code is not None for item in selected),
         average_latency_ms=_average(latencies),
         p50_latency_ms=_percentile(latencies, 0.50),
         p95_latency_ms=_percentile(latencies, 0.95),
-        recall_at_k=_average(recall_values) if recall_values else None,
+        hit_at_k=_average(hit_values) if hit_values else None,
         mean_reciprocal_rank=(
             _average(reciprocal_values) if reciprocal_values else None
         ),
@@ -442,6 +490,8 @@ def _error_observation(
 ) -> EvaluationObservation:
     return EvaluationObservation(
         case_id=case.case_id,
+        annotation_status=case.annotation_status,
+        split=case.split,
         mode=mode,
         tags=case.tags,
         passed=False,
@@ -449,6 +499,9 @@ def _error_observation(
         latency_ms=round(latency_ms, 3),
         expected_retrieval_hit=case.expected_retrieval_hit,
         expected_answered=case.expected_answered,
+        hit_at_k=(0.0 if case.expected_retrieval_hit and mode == EvaluationMode.RETRIEVAL else None),
+        reciprocal_rank=(0.0 if case.expected_retrieval_hit else None),
+        citation_hit=(False if case.expected_answered and mode == EvaluationMode.ANSWER else None),
         error_code=code[:100],
         http_status=http_status,
     )
@@ -478,3 +531,97 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
     ordered = sorted(values)
     index = max(0, math.ceil(percentile * len(ordered)) - 1)
     return round(ordered[index], 3)
+
+
+def validate_evaluation_run(
+    cases: Sequence[EvaluationCase],
+    scope: EvaluationScope,
+    dataset_path: str,
+    provenance: EvaluationProvenance | None,
+) -> None:
+    modern = [case for case in cases if case.dataset_version != "v1"]
+    if not modern:
+        return
+    if len(modern) != len(cases):
+        raise ValueError("legacy and versioned cases cannot share a run")
+    if provenance is None:
+        raise ValueError("v2 evaluation requires a frozen run manifest")
+    actual_hash = hashlib.sha256(Path(dataset_path).read_bytes()).hexdigest()
+    if actual_hash != provenance.dataset_sha256:
+        raise ValueError("dataset fingerprint differs from the frozen manifest")
+    for case in modern:
+        if (
+            case.corpus_fingerprint != provenance.corpus_fingerprint
+            or case.dataset_version != provenance.dataset_version
+            or case.split != provenance.split
+        ):
+            raise ValueError("case provenance differs from the frozen manifest")
+        for rule in [*case.relevant_sources, *case.forbidden_sources]:
+            if not set(rule.document_version_ids).issubset(scope.document_version_ids):
+                raise ValueError("annotated evidence is outside Java-approved versions")
+
+
+def validate_dataset_splits(
+    development: Sequence[EvaluationCase],
+    holdout: Sequence[EvaluationCase],
+) -> None:
+    development_groups = {case.task_group for case in development if case.task_group}
+    development_questions = {_normalize(case.question) for case in development}
+    if any(case.split != "development" for case in development):
+        raise ValueError("development data contains another split")
+    if any(case.split != "holdout" for case in holdout):
+        raise ValueError("holdout data contains another split")
+    if any(
+        case.task_group in development_groups
+        or _normalize(case.question) in development_questions
+        for case in holdout
+    ):
+        raise ValueError("development and holdout tasks overlap")
+
+
+_NEGATED_PREFIX = re.compile(
+    r"(?:没有|无需|不需要|无须|不要|不应|不可|未提及|未包含|不是|并非)"
+    r"[^。；;！!？?，,\n]{0,24}$|(?:不能|不得|禁止|不|勿)\s*$"
+)
+
+
+def _affirmative_term_present(answer: str, term: str) -> bool:
+    normalized = _normalize(answer)
+    needle = _normalize(term)
+    position = normalized.find(needle)
+    while position >= 0:
+        prefix = normalized[max(0, position - 32):position]
+        if not _NEGATED_PREFIX.search(prefix):
+            return True
+        position = normalized.find(needle, position + 1)
+    return False
+
+
+def _answer_patterns_present(answer: str, groups: Sequence[Sequence[str]]) -> bool:
+    return all(
+        any(
+            not _NEGATED_PREFIX.search(answer[max(0, match.start() - 32):match.start()])
+            for pattern in alternatives
+            for match in re.finditer(pattern, answer, re.IGNORECASE)
+        )
+        for alternatives in groups
+    )
+
+
+def _review_observation(
+    case: EvaluationCase, mode: EvaluationMode,
+) -> EvaluationObservation:
+    return EvaluationObservation(
+        case_id=case.case_id,
+        mode=mode,
+        tags=case.tags,
+        annotation_status=case.annotation_status,
+        split=case.split,
+        passed=False,
+        review_required=True,
+        review_reasons=[case.annotation_note or "annotation_not_verified"],
+        checks={"annotationVerified": False},
+        latency_ms=0,
+        expected_retrieval_hit=case.expected_retrieval_hit,
+        expected_answered=case.expected_answered,
+    )

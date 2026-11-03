@@ -8,9 +8,8 @@ from app.core.config import Settings
 from app.core.exceptions import ServiceError
 from app.schemas.rag import RagAnswerRequest
 from app.services.embedding import EmbeddingProvider
+from app.services.model_scope import resolve_model_scopes
 from app.services.retrieval_quality import (
-    declared_model_codes,
-    section_model_codes,
     is_applicable_to_model,
     is_navigation_only,
     lexical_relevance_scores,
@@ -27,7 +26,6 @@ MAX_NEIGHBOR_SEEDS = 20
 LEXICAL_RESERVE_THRESHOLD = 0.25
 MAX_LEXICAL_RESERVED = 2
 HEADING_LEXICAL_WEIGHT = 0.35
-MODEL_SCOPE_LOOKBACK = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,11 +126,15 @@ class MilvusEvidenceRetriever:
                 if float(hit.get("distance", -1)) >= request.score_threshold
             ]
             scanned_documents = self._scan_documents(client, scalar_filter)
+            scope_documents = self._complete_scope_context(
+                client, scalar_filter, dense_evidence, scanned_documents,
+            )
             return self._hybrid_rank(
                 request,
                 retrieval_question=retrieval_question,
                 dense_evidence=dense_evidence,
                 scanned_documents=scanned_documents,
+                scope_documents=scope_documents,
             )
         except ServiceError:
             raise
@@ -151,7 +153,7 @@ class MilvusEvidenceRetriever:
         """Read bounded text metadata for local lexical scoring.
 
         This is an MVP bridge to Milvus sparse/BM25 retrieval. A failed lexical
-        scan must not take down the existing dense retrieval path.
+        scan can still use dense hits with independently established scope.
         """
         try:
             records = client.query(
@@ -180,10 +182,11 @@ class MilvusEvidenceRetriever:
         retrieval_question: str,
         dense_evidence: list[RetrievedEvidence],
         scanned_documents: list[Document],
+        scope_documents: list[Document] | None = None,
     ) -> list[RetrievedEvidence]:
         all_documents: dict[tuple[int, int], Document] = {
             self._document_key(document): document
-            for document in scanned_documents
+            for document in [*(scope_documents or []), *scanned_documents]
         }
         for item in dense_evidence:
             all_documents.setdefault(
@@ -191,15 +194,12 @@ class MilvusEvidenceRetriever:
                 item.document,
             )
         selected_models = printer_model_codes(request.model_name or "")
+        resolved_scopes = resolve_model_scopes(all_documents.values())
         document_lookup: dict[tuple[int, int], Document] = {
             key: document
             for key, document in all_documents.items()
             if self._is_applicable_document(document, request.model_name)
-            and not self._has_conflicting_neighbor_scope(
-                document,
-                all_documents,
-                selected_models,
-            )
+            and resolved_scopes[key].allows(selected_models)
         }
         dense_evidence = [
             item
@@ -402,40 +402,49 @@ class MilvusEvidenceRetriever:
             selected_model=selected_model,
         )
 
-    def _has_conflicting_neighbor_scope(
+    def _complete_scope_context(
         self,
-        document: Document,
-        documents: dict[tuple[int, int], Document],
-        selected_models: set[str],
-    ) -> bool:
-        """Reject chunks that inherit a section label for another model.
-
-        Multi-model manuals put ``相关型号`` once at the start of a section;
-        the following chunks often do not repeat the label. The nearest
-        preceding declaration is therefore treated as the chunk's scope.
-        """
-        if not selected_models:
-            return False
-
-        own_declaration = declared_model_codes(
-            document.page_content,
-            heading=str(document.metadata.get("heading") or ""),
-        )
-        if own_declaration:
-            return False
-
-        version_id, chunk_index = self._document_key(document)
-        for offset in range(1, MODEL_SCOPE_LOOKBACK + 1):
-            neighbor = documents.get((version_id, chunk_index - offset))
-            if neighbor is None:
+        client: Any,
+        scalar_filter: str,
+        dense_evidence: list[RetrievedEvidence],
+        scanned_documents: list[Document],
+    ) -> list[Document]:
+        """Supplement bounded metadata only for incomplete dense-hit versions."""
+        documents = {
+            self._document_key(document): document
+            for document in scanned_documents
+        }
+        for item in dense_evidence:
+            documents.setdefault(self._document_key(item.document), item.document)
+        versions = {
+            int(item.document.metadata["document_version_id"])
+            for item in dense_evidence
+        }
+        for version_id in versions:
+            indexes = sorted(key[1] for key in documents if key[0] == version_id)
+            if not indexes or indexes == list(range(indexes[-1] + 1)):
                 continue
-            declared_models = section_model_codes(
-                neighbor.page_content,
-                heading=str(neighbor.metadata.get("heading") or ""),
-            )
-            if declared_models:
-                return declared_models.isdisjoint(selected_models)
-        return False
+            try:
+                records = client.query(
+                    collection_name=self._settings.milvus_collection,
+                    filter=(
+                        f"({scalar_filter}) and document_version_id == {version_id} "
+                        f"and chunk_index <= {indexes[-1]}"
+                    ),
+                    output_fields=self.OUTPUT_FIELDS,
+                    limit=self._settings.rag_lexical_scan_limit,
+                    timeout=self._settings.milvus_timeout_seconds,
+                )
+                for record in records:
+                    document = self._entity_to_document(record)
+                    key = self._document_key(document)
+                    if key[0] == version_id and key[1] <= indexes[-1]:
+                        documents.setdefault(key, document)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Model scope metadata unavailable: %s", type(exc).__name__,
+                )
+        return list(documents.values())
 
     def _get_client(self) -> Any:
         if self._client is not None:

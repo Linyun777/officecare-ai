@@ -23,7 +23,7 @@ from app.schemas.rag_cache import (
 
 logger = logging.getLogger(__name__)
 
-RETRIEVAL_ALGORITHM_VERSION = "f10-model-scope-2026-10-17"
+RETRIEVAL_ALGORITHM_VERSION = "m1-outline-scope-2026-10-25"
 
 
 @dataclass(frozen=True, slots=True)

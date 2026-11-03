@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+import re
+from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from app.schemas.common import ApiModel
 from app.schemas.rag import RagAnswerRequest
@@ -31,12 +33,18 @@ class RelevantSourceRule(ApiModel):
         "document_ids",
         "document_version_ids",
         "page_numbers",
-        "chunk_indexes",
     )
     @classmethod
     def validate_positive_values(cls, values: list[int]) -> list[int]:
         if any(value <= 0 for value in values):
             raise ValueError("source identifiers and positions must be positive")
+        return list(dict.fromkeys(values))
+
+    @field_validator("chunk_indexes")
+    @classmethod
+    def validate_chunk_indexes(cls, values: list[int]) -> list[int]:
+        if any(value < 0 for value in values):
+            raise ValueError("chunk indexes must be non-negative")
         return list(dict.fromkeys(values))
 
     @model_validator(mode="after")
@@ -56,6 +64,14 @@ class RelevantSourceRule(ApiModel):
 
 
 class EvaluationCase(ApiModel):
+    dataset_version: str = "v1"
+    split: Literal["development", "holdout"] = "development"
+    task_group: str = ""
+    annotation_status: Literal["legacy", "verified", "needs_review"] = "legacy"
+    annotation_note: str = ""
+    corpus_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    forbidden_sources: list[RelevantSourceRule] = Field(default_factory=list)
+    required_answer_patterns: list[list[str]] = Field(default_factory=list)
     case_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{1,79}$")
     question: str = Field(min_length=2, max_length=500)
     tags: list[str] = Field(default_factory=list, max_length=20)
@@ -99,6 +115,19 @@ class EvaluationCase(ApiModel):
             raise ValueError("answerable cases must also expect a retrieval hit")
         if self.expected_answered and self.min_citations < 1:
             raise ValueError("answerable cases must require at least one citation")
+        if (self.dataset_version == "v1") != (self.annotation_status == "legacy"):
+            raise ValueError("legacy annotations and versioned annotations cannot be interchanged")
+        if self.dataset_version != "v1":
+            if not self.task_group or not self.annotation_note or not self.corpus_fingerprint:
+                raise ValueError("v2 cases require a task group, annotation and corpus fingerprint")
+            if self.annotation_status == "verified" and self.expected_retrieval_hit:
+                if not all(rule.document_version_ids and rule.chunk_indexes for rule in self.relevant_sources):
+                    raise ValueError("verified positive cases require exact version and chunk anchors")
+        for alternatives in self.required_answer_patterns:
+            if not alternatives:
+                raise ValueError("answer pattern groups cannot be empty")
+            for pattern in alternatives:
+                re.compile(pattern)
         return self
 
 
@@ -159,6 +188,10 @@ class EvaluationSource(ApiModel):
 
 
 class EvaluationObservation(ApiModel):
+    annotation_status: str = "legacy"
+    split: str = "development"
+    review_required: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
     case_id: str
     mode: EvaluationMode
     tags: list[str]
@@ -173,7 +206,10 @@ class EvaluationObservation(ApiModel):
     blocked_reason: str | None = None
     first_relevant_rank: int | None = None
     reciprocal_rank: float | None = None
-    recall_at_k: float | None = None
+    hit_at_k: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("hitAtK", "hit_at_k", "recallAtK", "recall_at_k"),
+    )
     noise_rate: float | None = None
     citation_hit: bool | None = None
     sources: list[EvaluationSource] = Field(default_factory=list)
@@ -182,6 +218,13 @@ class EvaluationObservation(ApiModel):
 
 
 class EvaluationModeSummary(ApiModel):
+    positive_cases: int = 0
+    negative_cases: int = 0
+    unreviewed_cases: int = 0
+    pending_review_cases: int = 0
+    annotation_coverage: float = 0.0
+    execution_success_rate: float = 0.0
+    positive_rule_pass_rate: float | None = None
     mode: EvaluationMode
     cases: int
     passed: int
@@ -190,7 +233,10 @@ class EvaluationModeSummary(ApiModel):
     average_latency_ms: float
     p50_latency_ms: float
     p95_latency_ms: float
-    recall_at_k: float | None = None
+    hit_at_k: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("hitAtK", "hit_at_k", "recallAtK", "recall_at_k"),
+    )
     mean_reciprocal_rank: float | None = None
     noise_rate: float | None = None
     answer_accuracy: float | None = None
@@ -198,7 +244,20 @@ class EvaluationModeSummary(ApiModel):
     citation_hit_rate: float | None = None
 
 
+class EvaluationProvenance(ApiModel):
+    dataset_version: str
+    dataset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    corpus_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    algorithm_version: str
+    chat_model: str
+    embedding_model: str
+    split: Literal["development", "holdout"]
+
+
+
 class EvaluationReport(ApiModel):
+    schema_version: int = 2
+    provenance: EvaluationProvenance | None = None
     generated_at: datetime
     dataset_path: str
     scope: EvaluationScope

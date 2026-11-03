@@ -150,8 +150,8 @@ def test_model_applicability_rejects_explicit_other_model_section() -> None:
     )
 
 
-def test_model_applicability_keeps_bare_group_header_chunk() -> None:
-    assert is_applicable_to_model(
+def test_model_applicability_rejects_bare_group_header_chunk() -> None:
+    assert not is_applicable_to_model(
         "DCP-7195DW/MFC-7895DW\n错误信息 原因 措施",
         selected_model="DCP-L2550DW",
     )
@@ -249,3 +249,30 @@ def test_lexical_scoring_recognizes_english_technical_terms() -> None:
     )
 
     assert scores[0] > scores[1]
+
+
+def test_model_applicability_accepts_group_header_for_group_models() -> None:
+    chunk_text = "DCP-7195DW/MFC-7895DW\nAccess denied."
+    assert is_applicable_to_model(chunk_text, selected_model="DCP-7195DW")
+    assert is_applicable_to_model(chunk_text, selected_model="MFC-7895DW")
+
+
+def test_model_applicability_keeps_multimodel_list_containing_selected_model() -> None:
+    assert is_applicable_to_model(
+        ">> DCP-7090DW/DCP-L2535DW/DCP-L2550DW\nShared safety instructions.",
+        selected_model="DCP-L2550DW",
+    )
+
+
+def test_model_applicability_does_not_treat_supplies_as_model_scope() -> None:
+    assert is_applicable_to_model(
+        "TN-2425 / DR-2425\nReplace the toner cartridge.",
+        selected_model="DCP-L2550DW",
+    )
+
+
+def test_model_applicability_does_not_treat_fault_codes_as_model_scope() -> None:
+    assert is_applicable_to_model(
+        "OC-MQ-TEST-0904\nClear the paper jam.",
+        selected_model="DCP-L2550DW",
+    )
