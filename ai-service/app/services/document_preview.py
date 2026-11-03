@@ -279,7 +279,7 @@ def _structured_table(builder, context, previous):
     }
 
 
-def preview_document(request: DocumentPreviewRequest, settings: Settings) -> DocumentPreviewResponse:
+def build_preview_items(request: DocumentPreviewRequest, settings: Settings):
     builder = _Builder(request, settings)
     contexts = _contexts(request.parsed.blocks, request.document_version_id)
     warnings = list(request.parsed.warnings)
@@ -327,6 +327,11 @@ def preview_document(request: DocumentPreviewRequest, settings: Settings) -> Doc
                     warnings=unavailable,
                 )
             previous_table = None
+    return builder, warnings
+
+
+def preview_document(request: DocumentPreviewRequest, settings: Settings) -> DocumentPreviewResponse:
+    builder, warnings = build_preview_items(request, settings)
     start = (request.page_num - 1) * request.page_size
     return DocumentPreviewResponse(
         document_version_id=request.document_version_id,

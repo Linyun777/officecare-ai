@@ -59,6 +59,30 @@ public class OcDocumentPreviewService
         {
             throw new ServiceException("预览参数无效");
         }
+        ParsedDocument source = prepare(versionId);
+        AiDocumentPreviewRequest request = new AiDocumentPreviewRequest(
+            versionId, source.version().getFileHash(), source.parseId(), source.parsed(),
+            view, pageNum, pageSize, source.knowledgeBase().getModelName());
+        JsonNode response = ai.preview(request, "document-preview-" + UUID.randomUUID());
+        if (!response.path("documentVersionId").canConvertToLong()
+                || response.path("documentVersionId").asLong() != versionId
+                || !source.parseId().equals(response.path("parseId").asText())
+                || !view.equals(response.path("view").asText())
+                || response.path("pageNum").asInt(-1) != pageNum
+                || response.path("pageSize").asInt(-1) != pageSize
+                || !response.path("total").canConvertToInt()
+                || response.path("total").asInt() < 0
+                || !response.path("items").isArray()
+                || response.path("items").size() > pageSize)
+        {
+            throw new ServiceException("预览响应与请求的版本或解析结果不一致");
+        }
+        assertCurrent(source);
+        return response;
+    }
+
+    public ParsedDocument prepare(Long versionId)
+    {
         Source source = requireSource(versionId);
         OcDocumentVersion version = source.version();
         try (InputStream input = storage.open(version.getParsedObjectKey()))
@@ -76,38 +100,25 @@ public class OcDocumentPreviewService
             {
                 throw new ServiceException("解析结果内容与存储摘要不一致");
             }
-            AiDocumentPreviewRequest request = new AiDocumentPreviewRequest(
-                versionId, version.getFileHash(), parseId, parsed,
-                view, pageNum, pageSize, source.knowledgeBase().getModelName());
-            JsonNode response = ai.preview(request, "document-preview-" + UUID.randomUUID());
-            if (!response.path("documentVersionId").canConvertToLong()
-                    || response.path("documentVersionId").asLong() != versionId
-                    || !parseId.equals(response.path("parseId").asText())
-                    || !view.equals(response.path("view").asText())
-                    || response.path("pageNum").asInt(-1) != pageNum
-                    || response.path("pageSize").asInt(-1) != pageSize
-                    || !response.path("total").canConvertToInt()
-                    || response.path("total").asInt() < 0
-                    || !response.path("items").isArray()
-                    || response.path("items").size() > pageSize)
-            {
-                throw new ServiceException("预览响应与请求的版本或解析结果不一致");
-            }
-            Source current = requireSource(versionId);
-            if (!Objects.equals(current.version().getParsedObjectKey(), version.getParsedObjectKey())
-                    || !Objects.equals(current.version().getFileHash(), version.getFileHash())
-                    || !Objects.equals(current.knowledgeBase().getKnowledgeBaseId(),
-                                       source.knowledgeBase().getKnowledgeBaseId())
-                    || !Objects.equals(current.knowledgeBase().getModelId(),
-                                       source.knowledgeBase().getModelId()))
-            {
-                throw new ServiceException("解析结果或文档范围已变化，请重新打开预览");
-            }
-            return response;
+            return new ParsedDocument(version, source.knowledgeBase(), parsed, parseId, source.document());
         }
         catch (IOException exception)
         {
             throw new ServiceException("解析结果无法读取或格式无效");
+        }
+    }
+
+    public void assertCurrent(ParsedDocument source)
+    {
+        Source current = requireSource(source.version().getDocumentVersionId());
+        if (!Objects.equals(current.version().getParsedObjectKey(), source.version().getParsedObjectKey())
+                || !Objects.equals(current.version().getFileHash(), source.version().getFileHash())
+                || !Objects.equals(current.knowledgeBase().getKnowledgeBaseId(),
+                                   source.knowledgeBase().getKnowledgeBaseId())
+                || !Objects.equals(current.knowledgeBase().getModelId(),
+                                   source.knowledgeBase().getModelId()))
+        {
+            throw new ServiceException("解析结果或文档范围已变化，请重新加载");
         }
     }
 
@@ -134,12 +145,12 @@ public class OcDocumentPreviewService
         {
             throw new ServiceException("文档尚未解析成功，不能预览");
         }
-        return new Source(version, knowledgeBase);
+        return new Source(version, knowledgeBase, document);
     }
 
     private void validateArtifact(OcDocumentVersion version, AiDocumentParseResponse parsed)
     {
-        if (parsed.getSchemaVersion() == null || !Set.of(1, 2).contains(parsed.getSchemaVersion())
+        if (parsed == null || parsed.getSchemaVersion() == null || !Set.of(1, 2).contains(parsed.getSchemaVersion())
                 || parsed.getFileHash() == null
                 || !parsed.getFileHash().equalsIgnoreCase(version.getFileHash())
                 || !Objects.equals(parsed.getFileSize(), version.getFileSize())
@@ -166,7 +177,12 @@ public class OcDocumentPreviewService
         }
     }
 
-    private record Source(OcDocumentVersion version, OcKnowledgeBase knowledgeBase)
+    private record Source(OcDocumentVersion version, OcKnowledgeBase knowledgeBase, OcDocument document)
+    {
+    }
+
+    public record ParsedDocument(OcDocumentVersion version, OcKnowledgeBase knowledgeBase,
+                                 AiDocumentParseResponse parsed, String parseId, OcDocument document)
     {
     }
 }

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.officecare.mapper.OcDocumentIndexGenerationMapper">
+    <resultMap id="Generation" type="com.ruoyi.officecare.domain.OcDocumentIndexGeneration">
+        <id property="generationId" column="generation_id" />
+        <result property="documentId" column="document_id" />
+        <result property="documentVersionId" column="document_version_id" />
+        <result property="knowledgeBaseId" column="knowledge_base_id" />
+        <result property="brandId" column="brand_id" />
+        <result property="modelId" column="model_id" />
+        <result property="parseId" column="parse_id" />
+        <result property="parsedObjectKey" column="parsed_object_key" />
+        <result property="profile" column="profile" />
+        <result property="status" column="status" />
+        <result property="manifestJson" column="manifest_json" />
+        <result property="errorMessage" column="error_message" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <select id="selectById" resultMap="Generation">
+        select * from oc_document_index_generation where generation_id = #{generationId}
+    </select>
+
+    <select id="selectByVersionId" resultMap="Generation">
+        select * from oc_document_index_generation
+        where document_version_id = #{versionId} and status != 'DELETED'
+        order by create_time desc, generation_id
+    </select>
+
+    <insert id="insertGeneration">
+        insert into oc_document_index_generation
+        (generation_id, document_id, document_version_id, knowledge_base_id, brand_id, model_id, parse_id, parsed_object_key,
+         profile, status, create_by)
+        values (#{generationId}, #{documentId}, #{documentVersionId}, #{knowledgeBaseId}, #{brandId}, #{modelId}, #{parseId},
+                #{parsedObjectKey}, #{profile}, 'BUILDING', #{createBy})
+    </insert>
+
+    <update id="completeGeneration">
+        update oc_document_index_generation g
+        inner join oc_document_version v on v.document_version_id = g.document_version_id
+        inner join oc_document d on d.document_id = g.document_id
+        inner join oc_knowledge_base k on k.knowledge_base_id = d.knowledge_base_id
+        set g.status = 'READY', g.manifest_json = #{manifestJson}, g.update_time = sysdate()
+        where g.generation_id = #{generationId} and g.status = 'BUILDING'
+          and v.del_flag = '0' and v.process_status = '2'
+          and v.parsed_object_key = g.parsed_object_key
+          and d.del_flag = '0' and d.status = '0'
+          and k.del_flag = '0' and k.status = '0'
+          and k.knowledge_base_id = g.knowledge_base_id
+          and k.brand_id = g.brand_id and k.model_id = g.model_id
+    </update>
+
+    <update id="failGeneration">
+        update oc_document_index_generation
+        set status = 'FAILED', error_message = #{errorMessage}, update_time = sysdate()
+        where generation_id = #{generationId} and status = 'BUILDING'
+    </update>
+
+    <update id="deleteByVersionId">
+        update oc_document_index_generation
+        set status = 'DELETED', update_time = sysdate()
+        where document_version_id = #{versionId} and status != 'DELETED'
+    </update>
+</mapper>

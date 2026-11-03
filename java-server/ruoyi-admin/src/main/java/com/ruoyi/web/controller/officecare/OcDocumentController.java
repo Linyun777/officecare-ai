@@ -31,6 +31,7 @@ import com.ruoyi.officecare.service.IOcDocumentIndexingService;
 import com.ruoyi.officecare.service.IOcDocumentProcessingService;
 import com.ruoyi.officecare.service.IOcDocumentService;
 import com.ruoyi.officecare.service.impl.OcDocumentPreviewService;
+import com.ruoyi.officecare.service.impl.OcDocumentGenerationService;
 
 /**
  * OfficeCare知识文档管理。
@@ -47,15 +48,32 @@ public class OcDocumentController extends BaseController {
     private final IOcDocumentIndexingService indexingService;
 
     private final OcDocumentPreviewService previewService;
+    private final OcDocumentGenerationService generationService;
 
     public OcDocumentController(IOcDocumentService documentService,
                                 IOcDocumentProcessingService processingService,
                                 IOcDocumentIndexingService indexingService,
-                                OcDocumentPreviewService previewService) {
+                                OcDocumentPreviewService previewService,
+                                OcDocumentGenerationService generationService) {
         this.documentService = documentService;
         this.processingService = processingService;
         this.indexingService = indexingService;
         this.previewService = previewService;
+        this.generationService = generationService;
+    }
+
+    @PreAuthorize("@ss.hasPermi('officecare:document:query')")
+    @GetMapping("/versions/{documentVersionId}/generations")
+    public AjaxResult generations(@PathVariable Long documentVersionId) {
+        return success(generationService.list(documentVersionId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('officecare:document:query') and @ss.hasPermi('officecare:document:index')")
+    @Log(title = "构建文档索引代次", businessType = BusinessType.INSERT)
+    @PostMapping("/versions/{documentVersionId}/generations")
+    public AjaxResult buildGeneration(@PathVariable Long documentVersionId,
+                                     @RequestParam(defaultValue = "structured") String profile) {
+        return success(generationService.build(documentVersionId, profile, getUsername()));
     }
 
     @PreAuthorize("@ss.hasPermi('officecare:document:query') and @ss.hasPermi('officecare:document:download')")

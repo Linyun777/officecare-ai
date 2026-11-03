@@ -74,6 +74,7 @@ public class OcDocumentIndexingServiceImpl implements IOcDocumentIndexingService
     private final TaskExecutor taskExecutor;
 
     private final DocumentTaskOutboxService outboxService;
+    private final OcDocumentGenerationService generationService;
 
     public OcDocumentIndexingServiceImpl(
             OcDocumentTaskMapper taskMapper,
@@ -86,7 +87,8 @@ public class OcDocumentIndexingServiceImpl implements IOcDocumentIndexingService
             OfficeCareAiProperties properties,
             ObjectMapper objectMapper,
             @Qualifier("officeCareDocumentTaskExecutor") TaskExecutor taskExecutor,
-            DocumentTaskOutboxService outboxService) {
+            DocumentTaskOutboxService outboxService,
+            OcDocumentGenerationService generationService) {
         this.taskMapper = taskMapper;
         this.versionMapper = versionMapper;
         this.documentMapper = documentMapper;
@@ -98,6 +100,7 @@ public class OcDocumentIndexingServiceImpl implements IOcDocumentIndexingService
         this.objectMapper = objectMapper;
         this.taskExecutor = taskExecutor;
         this.outboxService = outboxService;
+        this.generationService = generationService;
     }
 
     @Override
@@ -321,6 +324,7 @@ public class OcDocumentIndexingServiceImpl implements IOcDocumentIndexingService
                         "FastAPI返回的索引删除版本ID不一致",
                         task.getTraceId());
             }
+            generationService.cleanupVersion(task.getDocumentVersionId(), task.getTraceId());
             OcDocumentVersion deleted = versionMapper.selectDeletedVersionForCleanup(
                     task.getDocumentId(), task.getDocumentVersionId());
             if (deleted != null && StringUtils.isNotEmpty(deleted.getParsedObjectKey())) {

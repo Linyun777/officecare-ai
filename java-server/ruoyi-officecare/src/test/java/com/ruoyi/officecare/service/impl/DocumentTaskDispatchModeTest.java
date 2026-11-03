@@ -65,7 +65,8 @@ class DocumentTaskDispatchModeTest
             new OfficeCareAiProperties(),
             new ObjectMapper(),
             executor,
-            outbox);
+            outbox,
+            mock(OcDocumentGenerationService.class));
         OcDocumentTask indexTask = task(2L,
             DocumentProcessingConstants.TASK_TYPE_INDEX);
         OcDocumentTask deleteTask = task(3L,

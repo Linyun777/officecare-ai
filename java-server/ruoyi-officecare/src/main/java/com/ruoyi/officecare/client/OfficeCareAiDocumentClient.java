@@ -31,6 +31,7 @@ import com.ruoyi.officecare.domain.dto.AiDocumentIndexRequest;
 import com.ruoyi.officecare.domain.dto.AiDocumentIndexResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentParseResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentPreviewRequest;
+import com.ruoyi.officecare.domain.dto.AiGenerationIndexRequest;
 import com.ruoyi.officecare.domain.dto.AiServiceErrorResponse;
 
 /**
@@ -159,6 +160,47 @@ public class OfficeCareAiDocumentClient {
         } catch (RestClientException exception) {
             throw new AiDocumentParseException("AI_SERVICE_REQUEST_FAILED",
                     "调用FastAPI文档预览接口失败", traceId, exception);
+        }
+    }
+
+    public JsonNode buildGeneration(AiGenerationIndexRequest request, String traceId) {
+        requireAvailable(traceId);
+        try {
+            JsonNode result = indexRestClient.post()
+                    .uri("/api/v1/internal/documents/generations")
+                    .header(TOKEN_HEADER, properties.getServiceToken())
+                    .header(TRACE_HEADER, traceId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request).retrieve().body(JsonNode.class);
+            if (result == null || !result.isObject()) {
+                throw new AiDocumentParseException("AI_EMPTY_RESPONSE", "FastAPI未返回索引代次清单", traceId);
+            }
+            return result;
+        } catch (RestClientResponseException exception) {
+            throw parseHttpException(exception, traceId);
+        } catch (RestClientException exception) {
+            throw new AiDocumentParseException("AI_SERVICE_REQUEST_FAILED", "索引代次构建失败或等待超时", traceId, exception);
+        }
+    }
+
+    public void deleteGeneration(String generationId, String traceId) {
+        deleteGenerationPath("/api/v1/internal/documents/generations/" + generationId, traceId);
+    }
+
+    public void deleteVersionGenerations(Long versionId, String traceId) {
+        deleteGenerationPath("/api/v1/internal/documents/generations/version/" + versionId, traceId);
+    }
+
+    private void deleteGenerationPath(String path, String traceId) {
+        requireAvailable(traceId);
+        try {
+            indexRestClient.delete().uri(path)
+                    .header(TOKEN_HEADER, properties.getServiceToken())
+                    .header(TRACE_HEADER, traceId).retrieve().toBodilessEntity();
+        } catch (RestClientResponseException exception) {
+            throw parseHttpException(exception, traceId);
+        } catch (RestClientException exception) {
+            throw new AiDocumentParseException("AI_SERVICE_REQUEST_FAILED", "索引代次清理失败或等待超时", traceId, exception);
         }
     }
 

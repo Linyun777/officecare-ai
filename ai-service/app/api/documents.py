@@ -9,6 +9,11 @@ from app.core.security import verify_internal_token
 from app.schemas.common import ErrorResponse
 from app.schemas.document import DocumentParseResponse
 from app.schemas.preview import DocumentPreviewRequest, DocumentPreviewResponse
+from app.schemas.generations import GenerationIndexRequest, GenerationIndexResponse, GenerationDeleteResponse
+from app.services.generation_indexing import (
+    GenerationIndexingService, get_generation_indexing_service, get_generation_store,
+)
+from app.services.generation_store import MilvusGenerationStore
 from app.services.document_preview import preview_document
 from app.schemas.indexing import (
     DocumentIndexDeleteResponse,
@@ -40,6 +45,34 @@ router = APIRouter(
 )
 async def preview_parsed_document(request: DocumentPreviewRequest) -> DocumentPreviewResponse:
     return await run_in_threadpool(preview_document, request, get_settings())
+
+
+@router.post("/generations", response_model=GenerationIndexResponse, dependencies=[Depends(verify_internal_token)])
+async def build_index_generation(
+    request: GenerationIndexRequest,
+    service: Annotated[GenerationIndexingService, Depends(get_generation_indexing_service)],
+) -> GenerationIndexResponse:
+    return await run_in_threadpool(service.index, request)
+
+
+@router.delete("/generations/version/{version_id}", response_model=GenerationDeleteResponse, dependencies=[Depends(verify_internal_token)])
+async def delete_version_generations(
+    version_id: int,
+    store: Annotated[MilvusGenerationStore, Depends(get_generation_store)],
+) -> GenerationDeleteResponse:
+    if version_id <= 0:
+        raise ServiceError(status_code=422, code="INVALID_DOCUMENT_VERSION_ID", message="Invalid document version ID.")
+    count = await run_in_threadpool(store.delete_version, version_id)
+    return GenerationDeleteResponse(collection_name=store.collection_name, deleted_count=count)
+
+
+@router.delete("/generations/{generation_id}", response_model=GenerationDeleteResponse, dependencies=[Depends(verify_internal_token)])
+async def delete_index_generation(
+    generation_id: str,
+    store: Annotated[MilvusGenerationStore, Depends(get_generation_store)],
+) -> GenerationDeleteResponse:
+    count = await run_in_threadpool(store.delete_generation, generation_id)
+    return GenerationDeleteResponse(collection_name=store.collection_name, deleted_count=count)
 
 
 @router.post(

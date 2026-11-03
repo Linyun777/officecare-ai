@@ -47,6 +47,9 @@ class VectorStore(Protocol):
 class MilvusVectorStore:
     """PyMilvus-backed store with explicit schema and idempotent version replacement."""
 
+    TEXT_MAX_BYTES = 8192
+    CONSISTENCY_LEVEL = "Bounded"
+
     def __init__(
         self,
         settings: Settings,
@@ -219,7 +222,7 @@ class MilvusVectorStore:
         schema.add_field(
             field_name="text",
             datatype=DataType.VARCHAR,
-            max_length=8192,
+            max_length=self.TEXT_MAX_BYTES,
         )
         schema.add_field(
             field_name="embedding_model",
@@ -232,6 +235,7 @@ class MilvusVectorStore:
             dim=self._dimension,
         )
 
+        self._add_schema_fields(schema)
         index_params = client.prepare_index_params()
         index_params.add_index(
             field_name="embedding",
@@ -243,7 +247,7 @@ class MilvusVectorStore:
                 collection_name=self._collection_name,
                 schema=schema,
                 index_params=index_params,
-                consistency_level="Bounded",
+                consistency_level=self.CONSISTENCY_LEVEL,
                 timeout=self._timeout,
             )
         except Exception:
@@ -253,6 +257,9 @@ class MilvusVectorStore:
             ):
                 raise
         self._validate_collection(client)
+
+    def _add_schema_fields(self, schema: Any) -> None:
+        pass
 
     def _validate_collection(self, client: Any) -> None:
         description = client.describe_collection(
