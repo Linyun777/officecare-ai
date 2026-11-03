@@ -321,6 +321,11 @@ public class OcDocumentIndexingServiceImpl implements IOcDocumentIndexingService
                         "FastAPI返回的索引删除版本ID不一致",
                         task.getTraceId());
             }
+            OcDocumentVersion deleted = versionMapper.selectDeletedVersionForCleanup(
+                    task.getDocumentId(), task.getDocumentVersionId());
+            if (deleted != null && StringUtils.isNotEmpty(deleted.getParsedObjectKey())) {
+                storageService.deleteParsedArtifacts(deleted.getParsedObjectKey());
+            }
             stateService.completeDeleteTask(task, response, SYSTEM_USER);
             invalidateRagCache(task, "DOCUMENT_INDEX_DELETED");
         } catch (AiDocumentParseException exception) {

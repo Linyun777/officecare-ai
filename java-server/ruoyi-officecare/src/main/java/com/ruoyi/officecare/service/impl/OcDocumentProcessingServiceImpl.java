@@ -31,6 +31,7 @@ import com.ruoyi.officecare.messaging.DocumentTaskOutboxService;
 import com.ruoyi.officecare.service.IOcDocumentIndexingService;
 import com.ruoyi.officecare.service.IOcDocumentProcessingService;
 import com.ruoyi.officecare.storage.DocumentStorageService;
+import com.ruoyi.officecare.storage.DocumentArtifactKeys;
 
 /**
  * OfficeCare文档解析任务服务实现。
@@ -213,11 +214,19 @@ public class OcDocumentProcessingServiceImpl implements IOcDocumentProcessingSer
             validateResponse(version, response);
 
             byte[] parsedContent = objectMapper.writeValueAsBytes(response);
-            String parsedObjectKey = buildParsedObjectKey(version);
+            String parsedObjectKey = DocumentArtifactKeys.parsedResult(version, parsedContent);
             storageService.storeGenerated(parsedContent, parsedObjectKey);
             String processMessage = successMessage(response);
-            stateService.completeTask(task, response, parsedObjectKey,
-                    processMessage, SYSTEM_USER);
+            try {
+                stateService.completeTask(task, response, parsedObjectKey,
+                        processMessage, SYSTEM_USER);
+            } catch (RuntimeException exception) {
+                // A provider response may arrive after the document was deleted.
+                if (versionMapper.selectVersionById(version.getDocumentVersionId()) == null) {
+                    storageService.deleteParsedArtifacts(parsedObjectKey);
+                }
+                throw exception;
+            }
             scheduleIndexSafely(version.getDocumentVersionId());
         } catch (AiDocumentParseException exception) {
             fail(task, exception.getErrorCode(), exception.getMessage(), exception);
@@ -304,18 +313,6 @@ public class OcDocumentProcessingServiceImpl implements IOcDocumentProcessingSer
         }
         log.warn("文档解析失败，taskId={}，traceId={}，errorCode={}",
                 task.getTaskId(), task.getTraceId(), errorCode, exception);
-    }
-
-    private String buildParsedObjectKey(OcDocumentVersion version) {
-        String objectKey = version.getObjectKey();
-        int originalPathIndex = objectKey.lastIndexOf("/original/");
-        if (originalPathIndex > 0) {
-            return objectKey.substring(0, originalPathIndex)
-                    + "/parsed/parse-result.json";
-        }
-        return "documents/" + version.getDocumentId()
-                + "/versions/" + version.getVersionNo()
-                + "/parsed/parse-result.json";
     }
 
     private String successMessage(AiDocumentParseResponse response) {

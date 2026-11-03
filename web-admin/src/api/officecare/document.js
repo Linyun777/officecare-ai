@@ -25,6 +25,16 @@ export function listDocumentVersions(documentId) {
   })
 }
 
+// 只读预览已保存的解析结果，不创建解析或索引任务
+export function getDocumentPreview(documentVersionId, params) {
+  return request({
+    url: `/officecare/document/versions/${documentVersionId}/preview`,
+    method: 'get',
+    params,
+    timeout: 60000
+  })
+}
+
 // 查询指定版本的解析任务
 export function getDocumentProcessingTask(documentVersionId) {
   return request({

@@ -22,6 +22,7 @@ import com.ruoyi.officecare.domain.dto.AiDocumentIndexDeleteResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentIndexRequest;
 import com.ruoyi.officecare.domain.dto.AiDocumentIndexResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentParseResponse;
+import com.ruoyi.officecare.domain.dto.AiDocumentPreviewRequest;
 import com.ruoyi.officecare.domain.dto.AiRagAnswerRequest;
 import com.ruoyi.officecare.domain.dto.AiRagAnswerResponse;
 import com.ruoyi.officecare.domain.dto.AiRagCacheInvalidateRequest;
@@ -86,6 +87,7 @@ class OfficeCareAiDocumentClientTest
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/v1/internal/documents/parse", this::handleRequest);
         server.createContext("/api/v1/internal/documents/index", this::handleRequest);
+        server.createContext("/api/v1/internal/documents/preview", this::handleRequest);
         server.createContext("/api/v1/internal/rag/answer", this::handleRequest);
         server.createContext("/api/v1/internal/rag/cache/stats", this::handleRequest);
         server.createContext("/api/v1/internal/rag/cache/invalidate", this::handleRequest);
@@ -99,6 +101,23 @@ class OfficeCareAiDocumentClientTest
     void tearDown()
     {
         server.stop(0);
+    }
+
+    @Test
+    void shouldUseReadOnlyPreviewEndpointAndInternalHeaders() throws Exception
+    {
+        responseBody = "{\"documentVersionId\":3,\"items\":[]}";
+        AiDocumentPreviewRequest request = new AiDocumentPreviewRequest(
+            3L, "a".repeat(64), "b".repeat(64), new AiDocumentParseResponse(),
+            "structured", 1, 20, "DCP-L2550DW");
+
+        var response = createClient().preview(request, "trace-preview-test");
+
+        assertEquals(3, response.path("documentVersionId").asInt());
+        assertEquals("/api/v1/internal/documents/preview", requestPath.get());
+        assertEquals("POST", requestMethod.get());
+        assertEquals("test-token", requestToken.get());
+        assertTrue(requestBody.get().contains("\"view\":\"structured\""));
     }
 
     @Test

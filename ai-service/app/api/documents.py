@@ -8,6 +8,8 @@ from app.core.exceptions import ServiceError
 from app.core.security import verify_internal_token
 from app.schemas.common import ErrorResponse
 from app.schemas.document import DocumentParseResponse
+from app.schemas.preview import DocumentPreviewRequest, DocumentPreviewResponse
+from app.services.document_preview import preview_document
 from app.schemas.indexing import (
     DocumentIndexDeleteResponse,
     DocumentIndexRequest,
@@ -28,6 +30,16 @@ router = APIRouter(
     prefix="/api/v1/internal/documents",
     tags=["Internal document parsing"],
 )
+
+
+@router.post(
+    "/preview",
+    response_model=DocumentPreviewResponse,
+    dependencies=[Depends(verify_internal_token)],
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def preview_parsed_document(request: DocumentPreviewRequest) -> DocumentPreviewResponse:
+    return await run_in_threadpool(preview_document, request, get_settings())
 
 
 @router.post(

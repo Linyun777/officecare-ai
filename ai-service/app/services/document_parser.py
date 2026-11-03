@@ -83,6 +83,8 @@ def parse_document(
         parsed = loader(content)
 
     return DocumentParseResponse(
+        schema_version=2,
+        normalization_version="structure-v2",
         file_name=file_name,
         file_type=file_type,
         content_type=content_type,

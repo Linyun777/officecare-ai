@@ -1,6 +1,7 @@
 package com.ruoyi.officecare.domain.dto;
 
 import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * FastAPI文档解析成功响应。
@@ -9,6 +10,30 @@ import java.util.List;
  */
 public class AiDocumentParseResponse
 {
+    private Integer schemaVersion = 1;
+
+    private String normalizationVersion = "legacy-v1";
+
+    public Integer getSchemaVersion()
+    {
+        return schemaVersion;
+    }
+
+    public void setSchemaVersion(Integer schemaVersion)
+    {
+        this.schemaVersion = schemaVersion;
+    }
+
+    public String getNormalizationVersion()
+    {
+        return normalizationVersion;
+    }
+
+    public void setNormalizationVersion(String normalizationVersion)
+    {
+        this.normalizationVersion = normalizationVersion;
+    }
+
     private String fileName;
 
     private String fileType;
@@ -141,6 +166,54 @@ public class AiDocumentParseResponse
         private String blockType;
 
         private String text;
+
+        private Integer headingLevel;
+
+        private Integer sourceItemIndex;
+
+        private Integer sourcePartIndex;
+
+        private JsonNode table;
+
+        public Integer getHeadingLevel()
+        {
+            return headingLevel;
+        }
+
+        public void setHeadingLevel(Integer headingLevel)
+        {
+            this.headingLevel = headingLevel;
+        }
+
+        public Integer getSourceItemIndex()
+        {
+            return sourceItemIndex;
+        }
+
+        public void setSourceItemIndex(Integer sourceItemIndex)
+        {
+            this.sourceItemIndex = sourceItemIndex;
+        }
+
+        public Integer getSourcePartIndex()
+        {
+            return sourcePartIndex;
+        }
+
+        public void setSourcePartIndex(Integer sourcePartIndex)
+        {
+            this.sourcePartIndex = sourcePartIndex;
+        }
+
+        public JsonNode getTable()
+        {
+            return table;
+        }
+
+        public void setTable(JsonNode table)
+        {
+            this.table = table;
+        }
 
         public Integer getSequence()
         {

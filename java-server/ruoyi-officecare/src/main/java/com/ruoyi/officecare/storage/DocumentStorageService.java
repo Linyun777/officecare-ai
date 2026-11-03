@@ -20,4 +20,6 @@ public interface DocumentStorageService
     public InputStream open(String objectKey) throws IOException;
 
     public void delete(String objectKey) throws IOException;
+
+    public void deleteParsedArtifacts(String parsedObjectKey) throws IOException;
 }

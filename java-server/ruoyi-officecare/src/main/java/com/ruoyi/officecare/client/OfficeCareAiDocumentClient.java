@@ -3,6 +3,7 @@ package com.ruoyi.officecare.client;
 import java.io.IOException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -29,6 +30,7 @@ import com.ruoyi.officecare.domain.dto.AiDocumentIndexDeleteResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentIndexRequest;
 import com.ruoyi.officecare.domain.dto.AiDocumentIndexResponse;
 import com.ruoyi.officecare.domain.dto.AiDocumentParseResponse;
+import com.ruoyi.officecare.domain.dto.AiDocumentPreviewRequest;
 import com.ruoyi.officecare.domain.dto.AiServiceErrorResponse;
 
 /**
@@ -129,6 +131,34 @@ public class OfficeCareAiDocumentClient {
         } catch (RestClientException exception) {
             throw new AiDocumentParseException("AI_SERVICE_REQUEST_FAILED",
                     "调用FastAPI文档解析接口失败", traceId, exception);
+        }
+    }
+
+    public JsonNode preview(AiDocumentPreviewRequest request, String traceId) {
+        requireAvailable(traceId);
+        try {
+            JsonNode response = restClient.post()
+                    .uri("/api/v1/internal/documents/preview")
+                    .header(TOKEN_HEADER, properties.getServiceToken())
+                    .header(TRACE_HEADER, traceId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(JsonNode.class);
+            if (response == null || !response.isObject()) {
+                throw new AiDocumentParseException("AI_EMPTY_RESPONSE",
+                        "FastAPI返回了无效预览响应", traceId);
+            }
+            return response;
+        } catch (RestClientResponseException exception) {
+            throw parseHttpException(exception, traceId);
+        } catch (ResourceAccessException exception) {
+            throw new AiDocumentParseException("AI_SERVICE_UNAVAILABLE",
+                    "无法连接FastAPI或等待预览响应超时", traceId, exception);
+        } catch (RestClientException exception) {
+            throw new AiDocumentParseException("AI_SERVICE_REQUEST_FAILED",
+                    "调用FastAPI文档预览接口失败", traceId, exception);
         }
     }
 

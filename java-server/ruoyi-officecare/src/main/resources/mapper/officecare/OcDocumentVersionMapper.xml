@@ -51,6 +51,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by version_no desc
     </select>
 
+    <select id="selectDeletedVersionForCleanup" resultMap="OcDocumentVersionResult">
+        <include refid="selectDocumentVersionVo"/>
+        where document_id = #{documentId}
+          and document_version_id = #{documentVersionId}
+          and del_flag = '2'
+    </select>
+
     <select id="selectVersionById" parameterType="Long" resultMap="OcDocumentVersionResult">
         <include refid="selectDocumentVersionVo"/>
         where document_version_id = #{documentVersionId}

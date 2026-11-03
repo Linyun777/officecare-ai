@@ -362,7 +362,7 @@
         <el-table-column label="处理说明" prop="processMessage" min-width="190" show-overflow-tooltip />
         <el-table-column label="索引说明" prop="indexMessage" min-width="210" show-overflow-tooltip />
         <el-table-column label="上传时间" prop="createTime" width="180" align="center" />
-        <el-table-column label="操作" width="390" align="center">
+        <el-table-column label="操作" width="510" align="center">
           <template #default="scope">
             <el-button
               link
@@ -371,6 +371,13 @@
               @click="handleDownload(scope.row.documentVersionId, scope.row.originalFileName)"
               v-hasPermi="['officecare:document:download']"
             >下载</el-button>
+            <el-button
+              v-if="canPreview && scope.row.processStatus === '2'"
+              link
+              type="primary"
+              icon="Reading"
+              @click="handlePreview(scope.row)"
+            >结构与分块预览</el-button>
             <el-button
               link
               type="primary"
@@ -408,6 +415,8 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <document-structure-preview v-if="previewOpen" v-model="previewOpen" :version="previewVersion" />
 
     <el-dialog :title="taskDialogTitle" v-model="taskOpen" width="720px" append-to-body>
       <el-skeleton v-if="taskLoading" :rows="6" animated />
@@ -452,6 +461,8 @@
 
 <script setup name="OfficeCareDocument">
 import { saveAs } from 'file-saver'
+import auth from '@/plugins/auth'
+import DocumentStructurePreview from './components/DocumentStructurePreview.vue'
 import { listKnowledgeBaseOptions } from '@/api/officecare/knowledgeBase'
 import {
   delDocument,
@@ -484,6 +495,12 @@ const uploadOpen = ref(false)
 const editOpen = ref(false)
 const versionOpen = ref(false)
 const taskOpen = ref(false)
+const previewOpen = ref(false)
+const previewVersion = ref({})
+const canPreview = computed(() => auth.hasPermiAnd([
+  'officecare:document:query',
+  'officecare:document:download'
+]))
 const loading = ref(true)
 const uploading = ref(false)
 const versionLoading = ref(false)
@@ -727,6 +744,11 @@ function handleTaskDetail(row, type) {
   }).finally(() => {
     taskLoading.value = false
   })
+}
+
+function handlePreview(row) {
+  previewVersion.value = row
+  previewOpen.value = true
 }
 
 function handleIndexVersion(row) {

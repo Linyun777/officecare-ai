@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.Comparator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -127,6 +128,33 @@ public class LocalDocumentStorageService implements DocumentStorageService
             throw new IOException("非法的文档存储路径");
         }
         return target;
+    }
+
+    @Override
+    public void deleteParsedArtifacts(String parsedObjectKey) throws IOException
+    {
+        int marker = parsedObjectKey.lastIndexOf("/parsed/");
+        if (marker <= 0)
+        {
+            throw new IOException("解析结果对象键缺少版本派生目录");
+        }
+        Path directory = resolveObjectKey(parsedObjectKey.substring(0, marker + 8));
+        if (!Files.exists(directory))
+        {
+            return;
+        }
+        if (!directory.getFileName().toString().equals("parsed")
+                || !directory.toRealPath().startsWith(storageRoot.toRealPath()))
+        {
+            throw new IOException("非法的解析结果清理目录");
+        }
+        try (var paths = Files.walk(directory))
+        {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList())
+            {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     private MessageDigest sha256Digest()

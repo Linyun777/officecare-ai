@@ -20,6 +20,7 @@ from app.core.config import Settings
 from app.core.exceptions import ServiceError
 from app.loaders.base import ParsedContent
 from app.schemas.document import BlockType, DocumentBlock, SupportedFileType
+from app.services.table_structure import html_table
 
 
 _API_RESPONSE_LIMIT_BYTES = 2 * 1024 * 1024
@@ -513,7 +514,7 @@ def parse_mineru_archive(
 
     blocks: list[DocumentBlock] = []
     max_page_number = 0
-    for item in content_items:
+    for source_item_index, item in enumerate(content_items):
         if not isinstance(item, dict):
             continue
         converted = _convert_content_item(item, file_type=file_type)
@@ -528,6 +529,23 @@ def parse_mineru_archive(
                 page_number=page_number,
                 block_type=block_type,
                 text=text,
+                heading_level=(
+                    item["text_level"]
+                    if block_type == BlockType.HEADING
+                    and type(item.get("text_level")) is int
+                    and item["text_level"] > 0
+                    else None
+                ),
+                source_item_index=source_item_index,
+                source_part_index=0,
+                table=(
+                    html_table(
+                        _text_value(item.get("table_body")),
+                        captions=_join_parts(item.get("table_caption")).splitlines(),
+                        footnotes=_join_parts(item.get("table_footnote")).splitlines(),
+                    )
+                    if block_type == BlockType.TABLE else None
+                ),
             )
         )
 
@@ -561,19 +579,18 @@ def _merge_parsed_parts(
 
     blocks: list[DocumentBlock] = []
     warnings: list[str] = []
-    for part, parsed in zip(parts, parsed_parts, strict=True):
+    for part_index, (part, parsed) in enumerate(zip(parts, parsed_parts, strict=True)):
         warnings.extend(parsed.warnings)
         for block in parsed.blocks:
             page_number = block.page_number
             if file_type == SupportedFileType.PDF and page_number is not None:
                 page_number += part.page_offset
             blocks.append(
-                DocumentBlock(
-                    sequence=len(blocks) + 1,
-                    page_number=page_number,
-                    block_type=block.block_type,
-                    text=block.text,
-                )
+                block.model_copy(update={
+                    "sequence": len(blocks) + 1,
+                    "page_number": page_number,
+                    "source_part_index": part_index,
+                })
             )
 
     if len(parts) > 1:

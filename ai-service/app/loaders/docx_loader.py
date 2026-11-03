@@ -9,6 +9,7 @@ from docx.text.paragraph import Paragraph
 from app.core.exceptions import ServiceError
 from app.loaders.base import ParsedContent
 from app.schemas.document import BlockType, DocumentBlock
+from app.services.table_structure import docx_table
 
 
 def _table_text(table: Table) -> str:
@@ -26,6 +27,8 @@ def load_docx(content: bytes) -> ParsedContent:
         blocks: list[DocumentBlock] = []
 
         for item in document.iter_inner_content():
+            heading_level = None
+            table_structure = None
             if isinstance(item, Paragraph):
                 text = item.text.strip()
                 if not text:
@@ -36,11 +39,15 @@ def load_docx(content: bytes) -> ParsedContent:
                     if style_name.lower().startswith("heading")
                     else BlockType.PARAGRAPH
                 )
+                if block_type == BlockType.HEADING:
+                    level = style_name.lower().removeprefix("heading").strip()
+                    heading_level = int(level) if level.isdigit() and int(level) > 0 else None
             elif isinstance(item, Table):
                 text = _table_text(item).strip()
                 if not text:
                     continue
                 block_type = BlockType.TABLE
+                table_structure = docx_table(item)
             else:
                 continue
 
@@ -50,6 +57,9 @@ def load_docx(content: bytes) -> ParsedContent:
                     page_number=None,
                     block_type=block_type,
                     text=text,
+                    heading_level=heading_level,
+                    source_item_index=len(blocks),
+                    table=table_structure,
                 )
             )
     except (PackageNotFoundError, BadZipFile, KeyError, ValueError) as exc:

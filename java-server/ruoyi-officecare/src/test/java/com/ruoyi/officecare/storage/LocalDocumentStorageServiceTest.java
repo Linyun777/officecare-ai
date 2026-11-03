@@ -72,6 +72,25 @@ class LocalDocumentStorageServiceTest
     }
 
     @Test
+    void shouldDeleteAllDerivedResultsWithoutTouchingOriginalOrOtherVersion() throws IOException
+    {
+        LocalDocumentStorageService service = createService();
+        String base = "documents/1/versions/1/";
+        service.storeGenerated(new byte[] {1}, base + "parsed/parse-result.json");
+        service.storeGenerated(new byte[] {2}, base + "parsed/parse-new.json");
+        service.storeGenerated(new byte[] {3}, base + "original/file.pdf");
+        service.storeGenerated(new byte[] {4}, "documents/1/versions/2/parsed/parse.json");
+
+        service.deleteParsedArtifacts(base + "parsed/parse-new.json");
+
+        assertFalse(Files.exists(storageRoot.resolve(base + "parsed")));
+        assertEquals(1, Files.size(storageRoot.resolve(base + "original/file.pdf")));
+        assertEquals(1, Files.size(storageRoot.resolve("documents/1/versions/2/parsed/parse.json")));
+        assertThrows(IOException.class, () -> service.deleteParsedArtifacts("../outside/parsed/file.json"));
+        assertThrows(IOException.class, () -> service.deleteParsedArtifacts(base + "original/file.pdf"));
+    }
+
+    @Test
     void shouldRejectObjectKeyOutsideStorageRoot()
     {
         LocalDocumentStorageService service = createService();

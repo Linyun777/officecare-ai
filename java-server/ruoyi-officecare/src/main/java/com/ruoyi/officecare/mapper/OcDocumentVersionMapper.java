@@ -11,6 +11,10 @@ import com.ruoyi.officecare.domain.OcDocumentVersion;
  */
 public interface OcDocumentVersionMapper
 {
+    public OcDocumentVersion selectDeletedVersionForCleanup(
+        @Param("documentId") Long documentId,
+        @Param("documentVersionId") Long documentVersionId);
+
     public List<OcDocumentVersion> selectVersionListByDocumentId(Long documentId);
 
     public OcDocumentVersion selectVersionById(Long documentVersionId);

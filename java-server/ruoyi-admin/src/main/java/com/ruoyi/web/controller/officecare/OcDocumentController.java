@@ -30,6 +30,7 @@ import com.ruoyi.officecare.domain.vo.DocumentDownload;
 import com.ruoyi.officecare.service.IOcDocumentIndexingService;
 import com.ruoyi.officecare.service.IOcDocumentProcessingService;
 import com.ruoyi.officecare.service.IOcDocumentService;
+import com.ruoyi.officecare.service.impl.OcDocumentPreviewService;
 
 /**
  * OfficeCare知识文档管理。
@@ -45,12 +46,25 @@ public class OcDocumentController extends BaseController {
 
     private final IOcDocumentIndexingService indexingService;
 
+    private final OcDocumentPreviewService previewService;
+
     public OcDocumentController(IOcDocumentService documentService,
                                 IOcDocumentProcessingService processingService,
-                                IOcDocumentIndexingService indexingService) {
+                                IOcDocumentIndexingService indexingService,
+                                OcDocumentPreviewService previewService) {
         this.documentService = documentService;
         this.processingService = processingService;
         this.indexingService = indexingService;
+        this.previewService = previewService;
+    }
+
+    @PreAuthorize("@ss.hasPermi('officecare:document:query') and @ss.hasPermi('officecare:document:download')")
+    @GetMapping("/versions/{documentVersionId}/preview")
+    public AjaxResult preview(@PathVariable Long documentVersionId,
+                              @RequestParam(defaultValue = "blocks") String view,
+                              @RequestParam(defaultValue = "1") int pageNum,
+                              @RequestParam(defaultValue = "20") int pageSize) {
+        return success(previewService.preview(documentVersionId, view, pageNum, pageSize));
     }
 
     /**
